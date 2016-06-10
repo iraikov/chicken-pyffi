@@ -169,7 +169,7 @@ method, #f is returned.
 ## License
 
 >
-> Copyright 2007-2012 Ivan Raikov. Based on pyffi.lisp by Dmitri Hrapof.
+> Copyright 2007-2016 Ivan Raikov. Based on pyffi.lisp by Dmitri Hrapof.
 > 
 > This program is free software: you can redistribute it and/or modify
 > it under the terms of the GNU General Public License as published by
