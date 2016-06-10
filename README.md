@@ -5,7 +5,7 @@ Chicken Scheme interface to the Python programming language.
 ## Documentation
 
 
-The pyffi extension uses the [[http://www.python.org|Python]] C
+The pyffi extension uses the Python (http://www.python.org) C
 interface to invoke Python procedures and methods from within Scheme
 and to convert data objects between their Python and Scheme
 representation.
@@ -156,7 +156,7 @@ method, #f is returned.
 
 ## Version history
 
-- 3.0 :  using [[bind]] instead of [[easyffi]]
+- 3.0 :  using bind instead of easyffi for C interface
 - 2.18 : setup script updated for Python 2.7 (thanks to Mario Domenech Goulart)
 - 2.17 : Documentation converted to wiki format
 - 2.16 : setup script updated for Python 2.6
