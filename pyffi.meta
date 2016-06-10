@@ -1,0 +1,24 @@
+;; -*- Hen -*-
+
+((egg "pyffi.egg") ; This should never change
+
+ ; List here all the files that should be bundled as part of your egg.  
+
+ (files "pyffi.meta" "pyffi.setup" "pyffi.scm")
+
+ ; Your egg's license:
+
+ (license "GPL-3")
+
+ ; Pick one from the list of categories (see below) for your egg and
+ ; enter it here.
+
+ (category ffi)
+
+ ; A list of eggs pyffi depends on.
+
+ (needs bind utf8)
+
+ (author "Ivan Raikov")
+
+ (synopsis "An interface to the Python programming language."))

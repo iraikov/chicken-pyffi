@@ -1,0 +1,52 @@
+;; -*- Hen -*-
+
+(define (python-try-compile header cppflags ldflags)
+  (and (try-compile 
+	(string-append header "\n" 
+		       "int main() { Py_Initialize(); return 0; }\n")
+	ldflags: ldflags
+	cflags: cppflags)
+       (cons cppflags ldflags) ))
+
+(define-syntax python-test 
+  (syntax-rules ()
+    ((_ (flags ...))
+     (condition-case (python-try-compile flags ...)
+		     (t ()    #f)))))
+
+(define cpp+ld-options
+  (let ((cflags (get-environment-variable "PYTHON_CFLAGS"))
+	(lflags (get-environment-variable "PYTHON_LFLAGS"))
+	(libs   (get-environment-variable "PYTHON_LIBS")))
+    (if (and cflags lflags libs)
+	(python-test ("#include <Python.h>" cflags (string-append lflags " " libs)))
+	(or (python-test ("#include <Python.h>" "-I/System/Library/Frameworks/Python.framework/Headers" "-framework Python"))
+	    (python-test ("#include <Python.h>" "-I/usr/include/python2.7" "-lpython2.7"))
+	    (python-test ("#include <Python.h>" "-I/usr/include/python2.6" "-lpython2.6"))
+	    (python-test ("#include <Python.h>" "-I/usr/include/python2.5" "-lpython2.5"))
+	    (python-test ("#include <Python.h>" "-I/usr/include/python2.4" "-lpython2.4"))
+	    (python-test ("#include <Python.h>" "-I/usr/include/python2.3" "-lpython2.3"))
+	    (python-test ("#include <Python.h>" "" "-lpython27"))
+	    (python-test ("#include <Python.h>" "" "-lpython26"))
+	    (python-test ("#include <Python.h>" "" "-lpython25"))
+	    (python-test ("#include <Python.h>" "" "-lpython24"))
+	    (python-test ("#include <Python.h>" "" "-lpython23"))
+	    (python-test ("#include <Python.h>" "-I/usr/include/python" "-lpython"))
+	    (error "unable to figure out location of Python")))
+    ))
+
+(define c-options  (car cpp+ld-options))
+(define ld-options (cdr cpp+ld-options))
+
+(define (dynld-name fn)		
+  (make-pathname #f fn ##sys#load-dynamic-extension))	
+
+(compile -O2 -d0 -I. -s pyffi.scm  -j pyffi 
+	 -L "\"" ,ld-options "\"" -C "\"" ,c-options "\"" )
+(compile -O2 -d0 -s pyffi.import.scm)
+
+(install-extension 
+ 'pyffi
+ `(,(dynld-name "pyffi") ,(dynld-name "pyffi.import")  )
+ `((version 3.1)))
+
