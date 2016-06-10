@@ -13,13 +13,13 @@ representation.
 Currently, pyffi supports the Python data types listed in the
 table below. All other Python data types are represented as pointers.
 
-int, float | numeric types, converted to and from the corresponding Scheme numeric values
-list | list type, converted to and from Scheme list value
-str | string type, converted to and from Scheme string value
-unicode | Unicode string type, converted to and from Scheme utf8 string
-dict | dictionary type, converted to and from Scheme alist value
-instance | class instance type, converted to Scheme alist value
-tuple | tuple type, converted to and from Scheme vector value
+- int, float : numeric types, converted to and from the corresponding Scheme numeric values
+- list : list type, converted to and from Scheme list value
+- str : string type, converted to and from Scheme string value
+- unicode : Unicode string type, converted to and from Scheme utf8 string
+- dict : dictionary type, converted to and from Scheme alist value
+- instance : class instance type, converted to Scheme alist value
+- tuple : tuple type, converted to and from Scheme vector value
 
 ## Installation
 
