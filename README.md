@@ -67,6 +67,18 @@ a pointer to a Python value. The arguments must be either Scheme
 values of types listed in the type conversion table above, or pointers
 to Python values.
 
+`(py-object-type value)`
+
+Returns the type string of the given Python object.
+
+`(py-object-to value)`
+
+Returns the Python representation of the given Scheme object.
+
+`(py-object-from)`
+
+Returns the Scheme representation of the given Python object, or the corresponding pointer.
+
 
 ## Macros
 
@@ -94,12 +106,13 @@ a modifier for that slot.
 
 
 
-`(define-pymethod NAME [SCHEME-NAME])`
+`(define-pymethod NAME [SCHEME-NAME: NAME] [KW: ARGS])`
 
-Defines an accessor for the Python method `NAME`. The optional
+Defines an accessor for the Python method `NAME`. The optional keyword
 argument `SCHEME-NAME` is an alternate name for the Scheme
-procedure. The accessor is a procedure of the form `LAMBDA OBJ ARG1 ...` 
-that takes in a Python object `OBJ` and invokes the method
+procedure. The optional keyword argument `KW` is a list of keyword
+argument names. The accessor is a procedure of the form `LAMBDA OBJ
+ARG1 ...` that takes in a Python object `OBJ` and invokes the method
 `NAME` contained in that object, with the supplied arguments, which
 must be either Scheme values of types listed in the type conversion
 table above, or pointers to Python values. If the object has no such
@@ -108,6 +121,39 @@ method, #f is returned.
 
 
 ## Examples
+
+### h5py
+
+```scheme
+(import chicken)
+(require-extension pyffi)
+
+(py-start)
+
+(py-import "h5py")
+(py-import "numpy")
+
+
+(define-pyfun "h5py.File" name mode)
+(define-pymethod "close") ;; File
+(define-pymethod "create_dataset" kw: (dtype)) ;; File
+
+(define-pyslot "shape")
+(define-pyslot "dtype")
+(define-pyslot "name")
+
+(define f (h5py.File "mytestfile.hdf5" "w"))
+
+(define dset (create_dataset f "mydataset"  (vector 100) dtype: "i"))
+
+(print (py-object-from (name dset)))
+(print (py-object-from (shape dset)))
+(print (py-object-type (dtype dset)))
+
+(close f)
+```
+
+### Python-UNO
 
 ```scheme
  ;;

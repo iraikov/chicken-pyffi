@@ -41,12 +41,12 @@
 (define (dynld-name fn)		
   (make-pathname #f fn ##sys#load-dynamic-extension))	
 
-(compile -O2 -d0 -I. -s pyffi.scm  -j pyffi 
+(compile -O -d2 -I. -s pyffi.scm  -j pyffi 
 	 -L "\"" ,ld-options "\"" -C "\"" ,c-options "\"" )
 (compile -O2 -d0 -s pyffi.import.scm)
 
 (install-extension 
  'pyffi
  `(,(dynld-name "pyffi") ,(dynld-name "pyffi.import")  )
- `((version 3.1)))
+ `((version 3.3)))
 

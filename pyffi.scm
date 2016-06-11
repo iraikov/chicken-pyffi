@@ -20,12 +20,12 @@
 
 (module pyffi
 
-   (py-start py-stop py-import py-eval py-apply
-	     raise-python-exception 
+   (py-start py-stop py-import py-eval py-apply py-object-type py-object-to py-object-from
+	     raise-python-exception python-exception-string
 	     *py-functions*
 	     (define-pyfun PyCallable_Check Py_DecRef )
 	     (define-pyslot PyObject_GetAttrString PyObject_SetAttrString )
-	     (define-pymethod PyObject_GetAttrString PyObject_CallObject ))
+	     (define-pymethod PyObject_GetAttrString PyObject_CallObject PyObject_Call ))
 
 
    (import scheme chicken lolevel srfi-1 srfi-4 srfi-69 data-structures foreign)
@@ -100,6 +100,9 @@
 	  (begin
 	    (Py_IncRef value)
 	    value)))))
+
+(define (py-object-type value)
+  (PyObject_Type_asString value))
 
 ;; Embed, but do not parse
 #>
@@ -231,6 +234,7 @@ int PyList_SetItem (PyObject *, int, pyobject);
 
 pyobject PyModule_GetDict (PyObject *); 
 pyobject PyObject_CallObject (PyObject *, pyobject);
+pyobject PyObject_Call (PyObject *, pyobject, pyobject);
 
 PyObject *PyObject_GetAttrString (PyObject *, const char *); 
 int PyObject_SetAttrString (PyObject *, const char *, pyobject); 
@@ -309,6 +313,10 @@ EOF
     (print-error-message desc)
     (signal (pyerror-exn desc))))
 
+(define (python-exception-string)
+  (let* ((desc   (PyErr_Occurred_asString)))
+    desc))
+
 (define-pytype py-int PyInt_FromLong PyInt_AsLong)
 
 (define-pytype py-tuple
@@ -365,7 +373,8 @@ EOF
 (define (utf8-string->py-unicode value)
   ;; Given a Scheme UTF8 string, converts it into Python Unicode string
   (let ((str (list->s32vector (map char->integer (utf8-string->list value)))))
-    (pyffi_PyUnicode_FromUnicode str (s32vector-length str))))
+    (let ((res (pyffi_PyUnicode_FromUnicode str (s32vector-length str))))
+      res)))
 
 (define (py-unicode->utf8-string value)
   ;; Given a Python Unicode string, converts it into Scheme UTF8 string
@@ -390,7 +399,9 @@ EOF
 			(if (not (zero? (PyDict_SetItem dct k v)))
 			    (raise-python-exception)))
 		      (else (pyffi:error 'py-dict "invalid alist pair " kv))))
-		value)))
+		value)
+      dct
+      ))
   ;; Given a Python dictionary, converts it into a Scheme alist
   (lambda (value)
     (let ((its (PyDict_Items value)))
@@ -524,19 +535,48 @@ EOF
   (lambda (x r c)
     (let ((name (cadr x)) 
 	  (rest (cddr x)))
-     (let-optionals rest ((scheme-name #f))
+      (let ((scheme-name (member 'scheme-name: rest))
+            (kw (member 'kw: rest)))
        (let ((%define          (r 'define))
-	     (or               (r 'or))
+	     (%quote           (r 'quote))
+	     (%cons            (r 'cons))
+	     (%list            (r 'list))
+	     (%filter          (r 'filter))
+	     (%take-while      (r 'take-while))
+	     (%lambda          (r 'lambda))
+	     (%symbol?         (r 'symbol?))
+	     (%null?           (r 'null?))
+	     (%and             (r 'and))
+	     (%not             (r 'not))
+	     (%if              (r 'if))
 	     (list->vector     (r 'list->vector))
 	     (PyObject_GetAttrString     (r 'PyObject_GetAttrString))
 	     (PyObject_CallObject        (r 'PyObject_CallObject))
-	     (name   (string->symbol (or scheme-name name)))
+	     (PyObject_Call              (r 'PyObject_Call))
+	     (name   (string->symbol (or (and scheme-name (cadr scheme-name)) name)))
 	     (obj    (r 'obj))
-	     (rest   (r 'rest)))
-	 `(,%define (,name ,obj . ,rest)
-	    (,PyObject_CallObject 
-	     (,PyObject_GetAttrString ,obj ,(->string name) )
-	     (,list->vector ,rest))))))))
+	     (rest   (r 'rest))
+             )
+         (if (not kw)
+             `(,%define (,name ,obj #!rest ,rest)
+                        (,PyObject_CallObject
+                         (,PyObject_GetAttrString ,obj ,(->string name) )
+                         (,list->vector ,rest)))
+             (let ((kwargs (cadr kw)))
+               `(,%define (,name ,obj #!rest ,rest #!key ,@(map (lambda (x) (list x #f)) kwargs))
+                          (let ((kwargs (,%filter identity 
+                                                  (,%list 
+                                                   ,@(map (lambda (k x) `(,%and ,x (,%list (->string (quote ,k)) ,x))) kwargs kwargs)))))
+                            (,PyObject_Call 
+                             (,PyObject_GetAttrString ,obj ,(->string name) )
+                             (,list->vector (,%take-while (,%lambda (x) (,%not (,%symbol? x))) ,rest))
+                             (,%if (,%null? kwargs) #f kwargs))
+                            ))
+               ))
+         ))
+      ))
+  )
+
 
 
 )
