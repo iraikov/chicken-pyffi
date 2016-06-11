@@ -48,5 +48,5 @@
 (install-extension 
  'pyffi
  `(,(dynld-name "pyffi") ,(dynld-name "pyffi.import")  )
- `((version 3.3)))
+ `((version 3.4)))
 
