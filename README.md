@@ -125,8 +125,7 @@ method, #f is returned.
 ### h5py
 
 ```scheme
-(import chicken)
-(require-extension pyffi)
+(import chicken pyffi)
 
 (py-start)
 
@@ -163,7 +162,7 @@ method, #f is returned.
  ;;
  ;;  soffice "-accept=socket,host=localhost,port=2002;urp;"
  ;;
- (require-extension pyffi)
+ (import pyffi)
  
  (py-start)
  
@@ -202,7 +201,7 @@ method, #f is returned.
 ## License
 
 >
-> Copyright 2007-2016 Ivan Raikov. Based on pyffi.lisp by Dmitri Hrapof.
+> Copyright 2007-2018 Ivan Raikov. Based on pyffi.lisp by Dmitri Hrapof.
 > 
 > This program is free software: you can redistribute it and/or modify
 > it under the terms of the GNU General Public License as published by
