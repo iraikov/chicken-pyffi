@@ -1,7 +1,7 @@
 ;;
 ;; Python-Scheme FFI. Based on pyffi.lisp by Dmitri Hrapof.
 ;; Adapted to Chicken Scheme by Ivan Raikov.
-;; Chicken Scheme code copyright 2007-2016 Ivan Raikov.
+;; Chicken Scheme code copyright 2007-2018 Ivan Raikov.
 ;;
 ;;
 ;; This program is free software: you can redistribute it and/or
@@ -28,10 +28,16 @@
 	     (define-pymethod PyObject_GetAttrString PyObject_CallObject PyObject_Call ))
 
 
-   (import scheme chicken lolevel srfi-1 srfi-4 srfi-69 data-structures foreign)
+   (import scheme (chicken base) (chicken foreign) (chicken syntax)
+           (chicken string) (chicken condition)
+           (only (chicken memory) pointer?) (only (chicken port) port-name)
+           (only srfi-1 every filter take-while)
+           srfi-4 srfi-69 bind utf8 utf8-lolevel utf8-srfi-13)
 
-   (require-extension bind utf8 utf8-lolevel utf8-srfi-13)
-
+   (import-for-syntax (chicken base) (chicken string)
+                      (only srfi-1 every filter take-while)
+                      srfi-69)
+   
 (define (pyffi:error x . rest)
   (let ((port (open-output-string)))
     (if (port? x)
@@ -53,27 +59,30 @@
 (define-record pytype name to from)
 
 (define-syntax define-pytype
-  (lambda (x r c)
-    (let ((%define (r 'define))
-	  (%make-pytype (r 'make-pytype))
-	  (name (cadr x))
-	  (to   (caddr x))
-	  (from (cadddr x)))
-      `(,%define ,name (,%make-pytype ',name ,to ,from)))))
+  (er-macro-transformer
+   (lambda (x r c)
+     (let ((%define (r 'define))
+           (%make-pytype (r 'make-pytype))
+           (name (cadr x))
+           (to   (caddr x))
+           (from (cadddr x)))
+       `(,%define ,name (,%make-pytype ',name ,to ,from))))))
 
 (define-syntax translate-to-foreign
-  (lambda (x r c)
-    (let ((%pytype-to (r 'pytype-to))
-	  (x (cadr x))
-	  (typ (caddr x)))
-      `((,%pytype-to ,typ) ,x))))
+  (er-macro-transformer
+   (lambda (x r c)
+     (let ((%pytype-to (r 'pytype-to))
+           (x (cadr x))
+           (typ (caddr x)))
+       `((,%pytype-to ,typ) ,x)))))
 
 (define-syntax translate-from-foreign
-  (lambda (x r c)
-    (let ((%pytype-from (r 'pytype-from))
-	  (x (cadr x))
-	  (typ (caddr x)))
-      `((,%pytype-from ,typ) ,x))))
+  (er-macro-transformer
+   (lambda (x r c)
+     (let ((%pytype-from (r 'pytype-from))
+           (x (cadr x))
+           (typ (caddr x)))
+       `((,%pytype-from ,typ) ,x)))))
 
 ;; Scheme -> Python
 (define (py-object-to value)
@@ -383,7 +392,7 @@ EOF
 	(len (pyffi_PyUnicode_GetSize value)))
     (let loop ((i 0) (lst (list)))
       (if (< i len)
-	  (loop (fx+ 1 i) (cons (pyffi_PyUnicode_ref buf i) lst))
+	  (loop (+ 1 i) (cons (pyffi_PyUnicode_ref buf i) lst))
 	  (list->string (map integer->char (reverse lst)))))))
 
 (define-pytype py-ascii PyString_FromString PyString_AsString)
@@ -399,7 +408,7 @@ EOF
 		      (let ((k (car kv)) (v (cadr kv)))
 			(if (not (zero? (PyDict_SetItem dct k v)))
 			    (raise-python-exception)))
-		      (else (pyffi:error 'py-dict "invalid alist pair " kv))))
+		      (pyffi:error 'py-dict "invalid alist pair " kv)))
 		value)
       dct
       ))
@@ -500,63 +509,67 @@ EOF
 
 ;; TODO: add keyword arguments
 (define-syntax define-pyfun
-  (lambda (x r c)
-    (let* ((%define (r 'define))
-	   (%let    (r 'let))
-	   (%if     (r 'if))
-	   (%begin  (r 'begin))
-	   (%set!   (r 'set!))
-	   (not     (r 'not))
-	   (alist-ref       (r 'alist-ref))
-	   (alist-update!   (r 'alist-update!))
-	   (py-eval   (r 'py-eval))
-	   (py-apply  (r 'py-apply))
-	   (raise-python-exception  (r 'raise-python-exception))
-	   (PyCallable_Check  (r 'PyCallable_Check))
-	   (Py_DecRef         (r 'Py_DecRef))
-	   (expr (cadr x))
-	   (args (cddr x))
-	   (func (r 'func))
-	   (name (if (list? expr) 
-		     (second expr) 
-		     (string->symbol expr)))
-	   (form          (if (list? expr) (first expr) expr)))
-      `(,%define ,(cons name args)
-	 (,%let ((,func (,hash-table-ref/default *py-functions* ',name #f)))
-		(,%if (,not ,func)
-		      (,%begin
-		       (,%set! ,func (,py-eval ,form))
-		       (,%if (,not ,func)
-			     (,raise-python-exception))
-		       (,%if (,not (,PyCallable_Check ,func))
-			     (,%begin
-			      (,Py_DecRef ,func)
-			      (,raise-python-exception)))
-		       (,hash-table-set! *py-functions* ',name ,func)))
-		(,py-apply ,func ,@args))))))
+  (er-macro-transformer
+   (lambda (x r c)
+     (let* ((%define (r 'define))
+            (%let    (r 'let))
+            (%if     (r 'if))
+            (%begin  (r 'begin))
+            (%set!   (r 'set!))
+            (not     (r 'not))
+            (alist-ref       (r 'alist-ref))
+            (alist-update!   (r 'alist-update!))
+            (py-eval   (r 'py-eval))
+            (py-apply  (r 'py-apply))
+            (raise-python-exception  (r 'raise-python-exception))
+            (PyCallable_Check  (r 'PyCallable_Check))
+            (Py_DecRef         (r 'Py_DecRef))
+            (expr (cadr x))
+            (args (cddr x))
+            (func (r 'func))
+            (name (if (list? expr) 
+                      (second expr) 
+                      (string->symbol expr)))
+            (form          (if (list? expr) (first expr) expr)))
+       `(,%define ,(cons name args)
+                  (,%let ((,func (,hash-table-ref/default *py-functions* ',name #f)))
+                         (,%if (,not ,func)
+                               (,%begin
+                                (,%set! ,func (,py-eval ,form))
+                                (,%if (,not ,func)
+                                      (,raise-python-exception))
+                                (,%if (,not (,PyCallable_Check ,func))
+                                      (,%begin
+                                       (,Py_DecRef ,func)
+                                       (,raise-python-exception)))
+                                (,hash-table-set! *py-functions* ',name ,func)))
+                         (,py-apply ,func ,@args)))))))
 
 
 (define-syntax define-pyslot
-  (lambda (x r c)
-    (let ((name (cadr x)) 
-	  (rest (cddr x)))
-     (let-optionals rest ((scheme-name #f))
-       (let ((%define (r 'define))
-	     (%if     (r 'if))
-	     (null?   (r 'null?))
-	     (car     (r 'car))
-	     (PyObject_GetAttrString     (r 'PyObject_GetAttrString))
-	     (PyObject_SetAttrString     (r 'PyObject_SetAttrString))
-	     (proc-name   (or scheme-name (string->symbol name)))
-	     (obj    (r 'obj))
-	     (rest   (r 'rest)))
-      `(,%define (,proc-name ,obj . ,rest)
-	 (,%if (,null? ,rest)
-	     (,PyObject_GetAttrString ,obj ,(->string name))
-	     (,PyObject_SetAttrString ,obj ,(->string name) (,car ,rest)))))))))
+  (er-macro-transformer
+   (lambda (x r c)
+     (let ((name (cadr x)) 
+           (rest (cddr x)))
+       (let-optionals rest ((scheme-name #f))
+                      (let ((%define (r 'define))
+                            (%if     (r 'if))
+                            (%null?   (r 'null?))
+                            (%car     (r 'car))
+                            (PyObject_GetAttrString     (r 'PyObject_GetAttrString))
+                            (PyObject_SetAttrString     (r 'PyObject_SetAttrString))
+                            (proc-name   (or scheme-name (string->symbol name)))
+                            (obj    (r 'obj))
+                            (rest   (r 'rest)))
+                        `(,%define (,proc-name ,obj . ,rest)
+                                   (,%if (,%null? ,rest)
+                                         (,PyObject_GetAttrString ,obj ,(->string name))
+                                         (,PyObject_SetAttrString ,obj ,(->string name)
+                                                                  (,%car ,rest))))))))))
 	  
 
 (define-syntax define-pymethod
+  (er-macro-transformer
   (lambda (x r c)
     (let ((name (cadr x)) 
 	  (rest (cddr x)))
@@ -566,6 +579,7 @@ EOF
 	     (%quote           (r 'quote))
 	     (%cons            (r 'cons))
 	     (%list            (r 'list))
+	     (%identity        (r 'identity))
 	     (%filter          (r 'filter))
 	     (%take-while      (r 'take-while))
 	     (%lambda          (r 'lambda))
@@ -574,7 +588,8 @@ EOF
 	     (%and             (r 'and))
 	     (%not             (r 'not))
 	     (%if              (r 'if))
-	     (list->vector     (r 'list->vector))
+	     (%list->vector     (r 'list->vector))
+	     (%->string         (r '->string))
 	     (PyObject_GetAttrString     (r 'PyObject_GetAttrString))
 	     (PyObject_CallObject        (r 'PyObject_CallObject))
 	     (PyObject_Call              (r 'PyObject_Call))
@@ -586,21 +601,21 @@ EOF
              `(,%define (,proc-name ,obj #!rest ,rest)
                         (,PyObject_CallObject
                          (,PyObject_GetAttrString ,obj ,(->string name) )
-                         (,list->vector ,rest)))
+                         (,%list->vector ,rest)))
              (let ((kwargs (cadr kw)))
                `(,%define (,proc-name ,obj #!rest ,rest #!key ,@(map (lambda (x) (list x #f)) kwargs))
-                          (let ((kwargs (,%filter identity 
+                          (let ((kwargs (,%filter ,%identity 
                                                   (,%list 
-                                                   ,@(map (lambda (k x) `(,%and ,x (,%list (->string (quote ,k)) ,x))) kwargs kwargs)))))
+                                                   ,@(map (lambda (k x) `(,%and ,x (,%list (,%->string (quote ,k)) ,x))) kwargs kwargs)))))
                             (,PyObject_Call 
                              (,PyObject_GetAttrString ,obj ,(->string name) )
-                             (,list->vector (,%take-while (,%lambda (x) (,%not (,%symbol? x))) ,rest))
+                             (,%list->vector (,%take-while (,%lambda (x) (,%not (,%symbol? x))) ,rest))
                              (,%if (,%null? kwargs) #f kwargs))
                             ))
                ))
          ))
       ))
-  )
+  ))
 
 
 

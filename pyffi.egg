@@ -1,0 +1,14 @@
+;; -*- Hen -*-
+
+(
+ (synopsis "An interface to the Python programming language.")
+ (license "GPL-3")
+ (category ffi)
+ (dependencies srfi-1 srfi-4 srfi-69 bind utf8)
+ (build-dependencies compile-file srfi-13)
+ (test-dependencies test)
+ (author "Ivan Raikov")
+ (components (extension pyffi (custom-build "build.sh")))
+ )
+
+ 
