@@ -125,7 +125,7 @@ method, #f is returned.
 ### h5py
 
 ```scheme
-(import chicken pyffi)
+(import scheme (chicken base) pyffi)
 
 (py-start)
 
