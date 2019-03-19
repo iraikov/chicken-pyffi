@@ -86,15 +86,16 @@
 			  (translate-to-foreign value py-list)))
    ((string? value)   (translate-to-foreign value py-unicode))
    ((vector? value)   (translate-to-foreign value py-tuple))
-   ((pointer? value)  value)
+   ((blob? value)     (translate-to-foreign value py-buffer))
    ((boolean? value)  (translate-to-foreign value py-bool))
+   ((pointer? value)  value)
    (else (pyffi:error 'py-object-to "invalid value " value))))
 
 ;; Python -> Scheme
 (define (py-object-from value)
   (if (not value) (raise-python-exception))
   (let ((typ-name   (PyObject_Type_asString value)))
-    (let ((typ-key (alist-ref typ-name *python-types* string=?)))
+    (let ((typ-key (alist-ref typ-name *py-types* string=?)))
       (if typ-key
 	  (translate-from-foreign value typ-key)
 	  (begin
@@ -417,17 +418,38 @@ EOF
   ;; Given a Python class instance, converts it into a Scheme alist
   (lambda (value) (PyObject_GetAttrString value "__dict__")))
 
+(define-pytype py-buffer 
+  ;; Given a Scheme blob, converts it into a Python buffer
+  (lambda (value)
+    (let ((buf (PyBuffer_New (blob-size value)))
+      (if (not buf) (raise-python-exception))
+      dct
+      ))
+  ;; Given a Python buffer, converts it into a Scheme blob
+  (lambda (value)
+    (let ((its (PyDict_Items value)))
+      (let loop ((its its) (alst (list)))
+	  (if (null? its) alst
+	      (let ((item (car its)))
+		(let ((k (vector-ref item 0))
+		      (v (vector-ref item 1)))
+		  (loop (cdr its) (cons (list k v) alst)))))))))
 
-(define  *python-types*
-  `(("<type 'bool'>"      . ,py-bool)
-    ("<type 'int'>"       . ,py-int)
-    ("<type 'float'>"     . ,py-float)
-    ("<type 'list'>"      . ,py-list)
-    ("<type 'str'>"       . ,py-ascii)
-    ("<type 'unicode'>"   . ,py-unicode)
-    ("<type 'dict'>"      . ,py-dict)
-    ("<type 'instance'>"  . ,py-instance)
-    ("<type 'tuple'>"     . ,py-tuple)))
+
+(define *py-types*
+   `(
+     ("<type 'bool'>"      . ,py-bool)
+     ("<type 'int'>"       . ,py-int)
+     ("<type 'float'>"     . ,py-float)
+     ("<type 'list'>"      . ,py-list)
+     ("<type 'str'>"       . ,py-ascii)
+     ("<type 'unicode'>"   . ,py-unicode)
+     ("<type 'dict'>"      . ,py-dict)
+     ("<type 'instance'>"  . ,py-instance)
+     ("<type 'tuple'>"     . ,py-tuple)
+     ("<type 'buffer'>"    . ,py-buffer)
+     )
+   )
 
 
 (define-constant +py-file-input+    257)
@@ -452,7 +474,7 @@ EOF
   (hash-table-clear! *py-functions*)
   (Py_Finalize))
 
-(define (py-import name)
+(define (py-import name #!key (as #f))
   (let ((p (string-index name #\.)))
     (let ((m (pyffi_PyImport_ImportModuleEx 
 	      name (*py-main-module-dict*) (*py-main-module-dict*) #f)))
@@ -462,7 +484,10 @@ EOF
 	      (begin
 		(Py_DecRef m)
 		(raise-python-exception))
-	      (Py_DecRef m))
+              (begin
+                (if as 
+                    (PyDict_SetItem (*py-main-module-dict*) as m)
+                    (Py_DecRef m))))
 	  (raise-python-exception)))))
 
 

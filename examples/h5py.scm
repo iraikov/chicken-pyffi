@@ -16,8 +16,7 @@
 ;; <http://www.gnu.org/licenses/>.
 ;;
 
-(import chicken)
-(require-extension pyffi)
+(use pyffi)
 
 (py-start)
 
