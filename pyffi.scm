@@ -1,7 +1,7 @@
 ;;
 ;; Python-Scheme FFI. Based on pyffi.lisp by Dmitri Hrapof.
 ;; Adapted to Chicken Scheme by Ivan Raikov.
-;; Chicken Scheme code copyright 2007-2018 Ivan Raikov.
+;; Chicken Scheme code copyright 2007-2019 Ivan Raikov.
 ;;
 ;;
 ;; This program is free software: you can redistribute it and/or
@@ -28,8 +28,8 @@
 	     (define-pymethod PyObject_GetAttrString PyObject_CallObject PyObject_Call ))
 
 
-   (import scheme (chicken base) (chicken foreign) (chicken syntax)
-           (chicken string) (chicken condition)
+   (import scheme (chicken base) (chicken foreign) (chicken syntax) 
+           (chicken blob) (chicken string) (chicken condition)
            (only (chicken memory) pointer?) (only (chicken port) port-name)
            (only srfi-1 every filter take-while)
            srfi-4 srfi-69 bind utf8 utf8-lolevel utf8-srfi-13)
@@ -259,8 +259,10 @@ int PyTuple_Size (PyObject *);
 pyobject PyTuple_GetItem (PyObject *, int);
 int PyTuple_SetItem (PyObject *, int, pyobject);
 
-
 PyObject *PyBool_FromLong(long);
+
+PyObject* PyBuffer_New(int);
+
 EOF
 )
 
@@ -403,13 +405,14 @@ EOF
   (lambda (value)
     (let ((dct (PyDict_New)))
       (if (not dct) (raise-python-exception))
-      (for-each (lambda (kv)
-		  (if (and (pair? kv) (pair? (cdr kv)))
-		      (let ((k (car kv)) (v (cadr kv)))
-			(if (not (zero? (PyDict_SetItem dct k v)))
-			    (raise-python-exception)))
-		      (pyffi:error 'py-dict "invalid alist pair " kv)))
-		value)
+      (for-each
+       (lambda (kv)
+         (if (and (pair? kv) (pair? (cdr kv)))
+             (let ((k (car kv)) (v (cadr kv)))
+               (if (not (zero? (PyDict_SetItem dct k v)))
+                   (raise-python-exception)))
+             (pyffi:error 'py-dict "invalid alist pair " kv)))
+       value)
       dct
       ))
   ;; Given a Python dictionary, converts it into a Scheme alist
@@ -422,17 +425,19 @@ EOF
 		      (v (vector-ref item 1)))
 		  (loop (cdr its) (cons (list k v) alst)))))))))
 
+
 (define-pytype py-instance 
   identity
   ;; Given a Python class instance, converts it into a Scheme alist
   (lambda (value) (PyObject_GetAttrString value "__dict__")))
 
+
 (define-pytype py-buffer 
   ;; Given a Scheme blob, converts it into a Python buffer
   (lambda (value)
-    (let ((buf (PyBuffer_New (blob-size value)))
+    (let ((buf (PyBuffer_New (blob-size value))))
       (if (not buf) (raise-python-exception))
-      dct
+      buf
       ))
   ;; Given a Python buffer, converts it into a Scheme blob
   (lambda (value)
@@ -442,7 +447,8 @@ EOF
 	      (let ((item (car its)))
 		(let ((k (vector-ref item 0))
 		      (v (vector-ref item 1)))
-		  (loop (cdr its) (cons (list k v) alst)))))))))
+		  (loop (cdr its) (cons (list k v) alst))))))))
+  )
 
 
 (define *py-types*
