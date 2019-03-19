@@ -28,10 +28,16 @@
 	     (define-pymethod PyObject_GetAttrString PyObject_CallObject PyObject_Call ))
 
 
-   (import scheme (chicken base) (chicken foreign) (chicken condition)
+   (import scheme (chicken base) (chicken foreign) (chicken syntax)
+           (chicken string) (chicken condition)
            (only (chicken memory) pointer?) (only (chicken port) port-name)
-           (only srfi-1 every) srfi-4 srfi-69 bind utf8 utf8-lolevel utf8-srfi-13)
+           (only srfi-1 every filter take-while)
+           srfi-4 srfi-69 bind utf8 utf8-lolevel utf8-srfi-13)
 
+   (import-for-syntax (chicken base) (chicken string)
+                      (only srfi-1 every filter take-while)
+                      srfi-69)
+   
 (define (pyffi:error x . rest)
   (let ((port (open-output-string)))
     (if (port? x)
@@ -523,18 +529,18 @@ EOF
        (let-optionals rest ((scheme-name #f))
                       (let ((%define (r 'define))
                             (%if     (r 'if))
-                            (null?   (r 'null?))
-                            (car     (r 'car))
+                            (%null?   (r 'null?))
+                            (%car     (r 'car))
                             (PyObject_GetAttrString     (r 'PyObject_GetAttrString))
                             (PyObject_SetAttrString     (r 'PyObject_SetAttrString))
                             (proc-name   (or scheme-name (string->symbol name)))
                             (obj    (r 'obj))
                             (rest   (r 'rest)))
                         `(,%define (,proc-name ,obj . ,rest)
-                                   (,%if (,null? ,rest)
+                                   (,%if (,%null? ,rest)
                                          (,PyObject_GetAttrString ,obj ,(->string name))
                                          (,PyObject_SetAttrString ,obj ,(->string name)
-                                                                  (,car ,rest))))))))))
+                                                                  (,%car ,rest))))))))))
 	  
 
 (define-syntax define-pymethod
@@ -548,6 +554,7 @@ EOF
 	     (%quote           (r 'quote))
 	     (%cons            (r 'cons))
 	     (%list            (r 'list))
+	     (%identity        (r 'identity))
 	     (%filter          (r 'filter))
 	     (%take-while      (r 'take-while))
 	     (%lambda          (r 'lambda))
@@ -556,7 +563,8 @@ EOF
 	     (%and             (r 'and))
 	     (%not             (r 'not))
 	     (%if              (r 'if))
-	     (list->vector     (r 'list->vector))
+	     (%list->vector     (r 'list->vector))
+	     (%->string         (r '->string))
 	     (PyObject_GetAttrString     (r 'PyObject_GetAttrString))
 	     (PyObject_CallObject        (r 'PyObject_CallObject))
 	     (PyObject_Call              (r 'PyObject_Call))
@@ -568,15 +576,15 @@ EOF
              `(,%define (,proc-name ,obj #!rest ,rest)
                         (,PyObject_CallObject
                          (,PyObject_GetAttrString ,obj ,(->string name) )
-                         (,list->vector ,rest)))
+                         (,%list->vector ,rest)))
              (let ((kwargs (cadr kw)))
                `(,%define (,proc-name ,obj #!rest ,rest #!key ,@(map (lambda (x) (list x #f)) kwargs))
-                          (let ((kwargs (,%filter identity 
+                          (let ((kwargs (,%filter ,%identity 
                                                   (,%list 
-                                                   ,@(map (lambda (k x) `(,%and ,x (,%list (->string (quote ,k)) ,x))) kwargs kwargs)))))
+                                                   ,@(map (lambda (k x) `(,%and ,x (,%list (,%->string (quote ,k)) ,x))) kwargs kwargs)))))
                             (,PyObject_Call 
                              (,PyObject_GetAttrString ,obj ,(->string name) )
-                             (,list->vector (,%take-while (,%lambda (x) (,%not (,%symbol? x))) ,rest))
+                             (,%list->vector (,%take-while (,%lambda (x) (,%not (,%symbol? x))) ,rest))
                              (,%if (,%null? kwargs) #f kwargs))
                             ))
                ))
