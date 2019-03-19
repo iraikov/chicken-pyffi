@@ -22,20 +22,20 @@
 
    (py-start py-stop py-import py-eval py-apply py-object-type py-object-to py-object-from
 	     raise-python-exception python-exception-string
-	     *py-functions*
-	     (define-pyfun PyCallable_Check Py_DecRef )
+	     *py-functions* 
+	     (define-pyfun PyCallable_Check Py_DecRef)
 	     (define-pyslot PyObject_GetAttrString PyObject_SetAttrString )
 	     (define-pymethod PyObject_GetAttrString PyObject_CallObject PyObject_Call ))
 
 
    (import scheme (chicken base) (chicken foreign) (chicken syntax) 
-           (chicken blob) (chicken string) (chicken condition)
+           (chicken blob) (chicken locative) (chicken string) (chicken condition)
            (only (chicken memory) pointer?) (only (chicken port) port-name)
            (only srfi-1 every filter take-while)
-           srfi-4 srfi-69 bind utf8 utf8-lolevel utf8-srfi-13)
+           srfi-4 srfi-69 bind utf8 utf8-lolevel utf8-srfi-13 utf8-srfi-14)
 
    (import-for-syntax (chicken base) (chicken string)
-                      (only srfi-1 every filter take-while)
+                      (only srfi-1 second every filter take-while)
                       srfi-69)
    
 (define (pyffi:error x . rest)
@@ -103,7 +103,7 @@
 ;; Python -> Scheme
 (define (py-object-from value)
   (if (not value) (raise-python-exception))
-  (let ((typ-name   (PyObject_Type_asString value)))
+  (let ((typ-name  (PyObject_Type_asString value)))
     (let ((typ-key (alist-ref typ-name *py-types* string=?)))
       (if typ-key
 	  (translate-from-foreign value typ-key)
@@ -201,7 +201,7 @@ int pyffi_PyUnicode_ref (int *x, int i)
 (define PyBool-AsBool (foreign-lambda scheme-object "PyBool_asBool" nonnull-c-pointer))
 (define pyffi_PyUnicode_ref (foreign-lambda integer "pyffi_PyUnicode_ref" nonnull-c-pointer integer))
 
-(bind-type pyobject (nonnull-c-pointer "PyObject") py-object-to py-object-from)
+(bind-type pyobject (c-pointer "PyObject") py-object-to py-object-from)
 
 
 ;; Parse but do not embed
@@ -242,11 +242,12 @@ int PyList_Size (PyObject *);
 pyobject PyList_GetItem (PyObject *, int); 
 int PyList_SetItem (PyObject *, int, pyobject);
 
+int PyModule_AddObject (PyObject *, char *, PyObject *); 
 pyobject PyModule_GetDict (PyObject *); 
 pyobject PyObject_CallObject (PyObject *, pyobject);
 pyobject PyObject_Call (PyObject *, pyobject, pyobject);
 
-PyObject *PyObject_GetAttrString (PyObject *, const char *); 
+pyobject PyObject_GetAttrString (PyObject *, const char *); 
 int PyObject_SetAttrString (PyObject *, const char *, pyobject); 
 pyobject PyObject_Str (PyObject *);
 
@@ -261,8 +262,11 @@ int PyTuple_SetItem (PyObject *, int, pyobject);
 
 PyObject *PyBool_FromLong(long);
 
-PyObject* PyBuffer_New(int);
 
+int PyObject_GetBuffer(PyObject *exporter, Py_buffer *view, int flags);
+int PyBuffer_ToContiguous(void *buf, Py_buffer *src, int len, char order);
+int PyBuffer_FromContiguous(Py_buffer *view, void *buf, int len, char order);
+void PyBuffer_Release(Py_buffer *view);
 EOF
 )
 
@@ -270,7 +274,7 @@ EOF
 ;; Parse & embed
 (bind* #<<EOF
 
-PyObject *pyffi_PyImport_ImportModuleEx (char *, PyObject *, PyObject *, PyObject *);
+PyObject *pyffi_PyImport_ImportModuleEx (char *, PyObject *, PyObject *, pyobject);
 
 pyobject pyffi_PyRun_String (const char *str, int s, PyObject *g, PyObject *l);
 
@@ -312,7 +316,13 @@ char *PyErr_Occurred_asString (void)
   Py_DecRef (exc);
 
   return (((PyStringObject *)(str))->ob_sval);
+  }
+
+int PyBuffer_Size(Py_buffer *buf)
+{
+    return buf->len;
 }
+
 EOF
 )
 
@@ -335,14 +345,14 @@ EOF
   (lambda (value)
     (let* ((len (vector-length value))
 	   (tup (PyTuple_New len)))
-       (if (not tup) (raise-python-exception))
-       (let loop ((i 0))
-	 (if (< i len) 
-	     (begin
-	       (if (not (zero? (PyTuple_SetItem tup i (vector-ref value i))))
-		   (raise-python-exception))
-	       (loop (+ 1 i)))
-	     tup))))
+      (if (not tup) (raise-python-exception))
+      (let loop ((i 0))
+        (if (< i len) 
+            (begin
+              (if (not (zero? (PyTuple_SetItem tup i (vector-ref value i))))
+                  (raise-python-exception))
+              (loop (+ 1 i)))
+            tup))))
   (lambda (value)
     (let* ((len (PyTuple_Size value))
 	   (tup (make-vector len)))
@@ -435,19 +445,16 @@ EOF
 (define-pytype py-buffer 
   ;; Given a Scheme blob, converts it into a Python buffer
   (lambda (value)
-    (let ((buf (PyBuffer_New (blob-size value))))
+    (let ((buf (make-blob (blob-size value))))
       (if (not buf) (raise-python-exception))
+      (PyBuffer_FromContiguous buf value (blob-size value) #\C)
       buf
       ))
   ;; Given a Python buffer, converts it into a Scheme blob
   (lambda (value)
-    (let ((its (PyDict_Items value)))
-      (let loop ((its its) (alst (list)))
-	  (if (null? its) alst
-	      (let ((item (car its)))
-		(let ((k (vector-ref item 0))
-		      (v (vector-ref item 1)))
-		  (loop (cdr its) (cons (list k v) alst))))))))
+    (let ((b (make-blob (PyBuffer_Size value))))
+      (PyBuffer_ToContiguous (make-locative b) value (PyBuffer_Size value) #\C)
+      b))
   )
 
 
@@ -479,35 +486,37 @@ EOF
   (Py_Initialize)
   (*py-main-module* (PyImport_AddModule "__main__"))
   (*py-main-module-dict* (PyModule_GetDict_asPtr (*py-main-module*)))
+  (Py_IncRef (*py-main-module-dict*))
   (let ((tmp (pyffi_PyRun_String "from __builtin__ import *" +py-single-input+ 
                                  (*py-main-module-dict*) #f)))
     (Py_DecRef tmp)))
 
 (define (py-stop)
+  (Py_DecRef (*py-main-module-dict*))
   (*py-main-module* #f)
   (*py-main-module-dict* #f)
   (hash-table-clear! *py-functions*)
   (Py_Finalize))
 
 (define (py-import name #!key (as #f))
-  (let ((p (string-index name #\.)))
-    (let ((m (pyffi_PyImport_ImportModuleEx 
-	      name (*py-main-module-dict*) (*py-main-module-dict*) #f)))
+  (let* ((p (string-split name "."))
+         (id (if (null? p) name (car p))))
+    (let ((m (pyffi_PyImport_ImportModuleEx name (*py-main-module-dict*) #f #f)))
       (if m
-	  (if (= -1 (PyObject_SetAttrString 
-		     (*py-main-module*) (if p (string-drop name p) name) m))
-	      (begin
-		(Py_DecRef m)
-		(raise-python-exception))
+          (if (= -1 (PyModule_AddObject (*py-main-module*) id m))
               (begin
-                (if as 
-                    (PyDict_SetItem (*py-main-module-dict*) as m)
-                    (Py_DecRef m))))
-	  (raise-python-exception)))))
+                (Py_DecRef m)
+                (raise-python-exception))
+              (begin
+                (if as
+                  (PyModule_AddObject (*py-main-module*) as m)
+                  (Py_IncRef m))))
+          (raise-python-exception)))
+    ))
 
 
 (define (py-eval expr)
-  (pyffi_PyRun_String expr +py-eval-input+ (*py-main-module-dict*) (*py-main-module-dict*)))
+  (pyffi_PyRun_String expr +py-eval-input+ (*py-main-module-dict*) #f))
 
 (define (py-apply func . rest)
   (PyObject_CallObject func (list->vector rest)))
@@ -549,7 +558,10 @@ EOF
                                        (,Py_DecRef ,func)
                                        (,raise-python-exception)))
                                 (,hash-table-set! *py-functions* ',name ,func)))
-                         (,py-apply ,func ,@args)))))))
+                         (,py-apply ,func . ,args)
+                         ))
+       ))
+   ))
 
 
 (define-syntax define-pyslot

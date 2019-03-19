@@ -36,8 +36,8 @@
 
 (define dset (File.create_dataset f "mydataset"  (vector 100) dtype: "i"))
 
-(print (py-object-from (Dataset.name dset)))
-(print (py-object-from (Dataset.shape dset)))
-(print (py-object-type (Dataset.dtype dset)))
+(print (Dataset.name dset))
+(print (Dataset.shape dset))
+(print (Dataset.dtype dset))
 
 (File.close f)

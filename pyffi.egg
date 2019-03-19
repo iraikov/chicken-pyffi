@@ -8,7 +8,7 @@
  (build-dependencies compile-file srfi-13)
  (test-dependencies test)
  (author "Ivan Raikov")
- (components (extension pyffi (custom-build "build.sh")))
+ (components (extension pyffi (custom-build "build.sh") (csc-options "-d2" "-O0")))
  )
 
  
