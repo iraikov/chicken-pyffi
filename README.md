@@ -87,7 +87,7 @@ Returns the Scheme representation of the given Python object, or the correspondi
 
 Defines a Scheme procedure named when called, invokes the Python
 procedure of the same name. `EXPR` is either a string that contains
-the procedure name, or a pair of the form `(FORM . NAME)` where `FORM`
+the procedure name, or a pair of the form `(FORM NAME)` where `FORM`
 is a Python expression that when evaluated returns a Python procedure,
 and `NAME` is a string that contains the name of the Scheme
 procedure. The arguments must be all symbols.

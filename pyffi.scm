@@ -31,11 +31,11 @@
    (import scheme (chicken base) (chicken foreign) (chicken syntax) 
            (chicken blob) (chicken locative) (chicken string) (chicken condition)
            (only (chicken memory) pointer?) (only (chicken port) port-name)
-           (only srfi-1 every filter take-while)
+           (only srfi-1 first second every filter take-while)
            srfi-4 srfi-69 bind utf8 utf8-lolevel utf8-srfi-13 utf8-srfi-14)
 
    (import-for-syntax (chicken base) (chicken string)
-                      (only srfi-1 second every filter take-while)
+                      (only srfi-1 first second every filter take-while)
                       srfi-69)
    
 (define (pyffi:error x . rest)
