@@ -16,8 +16,7 @@
 ;; <http://www.gnu.org/licenses/>.
 ;;
 
-(import chicken)
-(require-extension pyffi)
+(import scheme (chicken base) pyffi)
 
 ;;
 ;; Before running the following code, you must make sure OpenOffice is
