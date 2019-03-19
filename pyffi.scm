@@ -35,7 +35,7 @@
            srfi-4 srfi-69 bind utf8 utf8-lolevel utf8-srfi-13)
 
    (import-for-syntax (chicken base) (chicken string)
-                      (only srfi-1 every filter take-while)
+                      (only srfi-1 every filter take-while first second)
                       srfi-69)
    
 (define (pyffi:error x . rest)
