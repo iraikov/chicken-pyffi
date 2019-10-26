@@ -103,7 +103,7 @@
 ;; Python -> Scheme
 (define (py-object-from value)
   (if (not value) (raise-python-exception))
-  (let ((typ-name  (PyObject_Type_asString value)))
+  (let ((typ-name  (pyffi_PyObject_Type_toCString value)))
     (let ((typ-key (alist-ref typ-name *py-types* string=?)))
       (if typ-key
 	  (translate-from-foreign value typ-key)
@@ -112,13 +112,12 @@
 	    value)))))
 
 (define (py-object-type value)
-  (PyObject_Type_asString value))
+  (pyffi_PyObject_Type_toCString value))
 
 ;; Embed, but do not parse
 #>
 
 #include <Python.h>
-
 
 #if ((PY_MAJOR_VERSION == 2) && (PY_MINOR_VERSION <= 3))
 void Py_IncRef (PyObject *x)
@@ -146,37 +145,6 @@ PyObject *pyffi_PyImport_ImportModuleEx (char *name, PyObject *g, PyObject *l, P
 }
 
 
-#ifndef Py_UNICODE_WIDE
- int *pyffi_PyUnicode_AsUnicode (PyObject *x)
- {
-    return PyUnicodeUCS2_AsUnicode (x);
- }
- PyObject *pyffi_PyUnicode_FromUnicode (const int *s, int n)
- {
-    return PyUnicodeUCS2_FromUnicode (s, n);
- } 
- int pyffi_PyUnicode_GetSize (PyObject *x)
- {
-    return PyUnicodeUCS2_GetSize (x);
- }
-#else
- int *pyffi_PyUnicode_AsUnicode (PyObject *x)
- {
-    int * result;
-    result = PyUnicodeUCS4_AsUnicode (x);
-    
-    return result;
- }
- PyObject *pyffi_PyUnicode_FromUnicode (const int *s, int n)
- {
-    return PyUnicodeUCS4_FromUnicode (s, n);
- } 
- int pyffi_PyUnicode_GetSize (PyObject *x)
- {
-    return PyUnicodeUCS4_GetSize (x);
- }
-#endif
-
 C_word PyBool_asBool(PyObject *x)
 {
    if (x == (Py_True)) return C_SCHEME_TRUE;
@@ -194,6 +162,11 @@ int pyffi_PyUnicode_ref (int *x, int i)
    
    return result;
 }
+
+#if PY_MAJOR_VERSION >= 3
+#define PyInt_AsLong PyLong_AsLong
+#define PyInt_FromLong PyLong_FromLong
+#endif
 
 <#
 
@@ -233,7 +206,6 @@ PyObject *PyImport_Import (pyobject );
 PyObject *PyImport_ImportModule (const char *name); 
 PyObject *PyImport_AddModule (const char *name); 
 
-
 long PyInt_AsLong (PyObject *);
 PyObject *PyInt_FromLong (long);
 
@@ -250,10 +222,6 @@ pyobject PyObject_Call (PyObject *, pyobject, pyobject);
 pyobject PyObject_GetAttrString (PyObject *, const char *); 
 int PyObject_SetAttrString (PyObject *, const char *, pyobject); 
 pyobject PyObject_Str (PyObject *);
-
-
-char *PyString_AsString (PyObject *);
-PyObject *PyString_FromString (const char *);
 
 PyObject *PyTuple_New (int);
 int PyTuple_Size (PyObject *);
@@ -278,23 +246,69 @@ PyObject *pyffi_PyImport_ImportModuleEx (char *, PyObject *, PyObject *, pyobjec
 
 pyobject pyffi_PyRun_String (const char *str, int s, PyObject *g, PyObject *l);
 
-int *pyffi_PyUnicode_AsUnicode (PyObject *);
-PyObject *pyffi_PyUnicode_FromUnicode (const int *, int);
-int pyffi_PyUnicode_GetSize (PyObject *);
-
-
 PyObject *PyModule_GetDict_asPtr (PyObject *x)
 {
  return PyModule_GetDict (x);
 }
 
-char *PyString_asString(pyobject op) 
+PyObject* pyffi_PyString_fromCString(const char *string)
 {
- printf ("PyString_AsString\n");
-  return (((PyStringObject *)(op))->ob_sval);
+#if PY_MAJOR_VERSION >= 3
+  return PyUnicode_FromString(string);
+#else
+  return PyBytes_FromString(string);
+#endif
+  
 }
 
-char *PyObject_Type_asString (pyobject x)
+char *pyffi_PyString_toCString(pyobject op) 
+{
+#if PY_MAJOR_VERSION >= 3
+  return PyUnicode_AsUTF8(op);
+#else
+  return PyBytes_AsString(op);
+#endif
+
+}
+
+char *pyffi_PyString_toCStringAndSize(pyobject op, Py_ssize_t *size) 
+{
+#if PY_MAJOR_VERSION >= 3
+  return PyUnicode_AsUTF8AndSize(op, size);
+#else
+  
+  return PyBytes_AsStringAndSize(op, size);
+#endif
+
+}
+
+PyObject* pyffi_PyUnicode_fromCString(const char *string)
+{
+  return PyUnicode_FromString(string);
+}
+
+char *pyffi_PyUnicode_toCString(pyobject op) 
+{
+#if PY_MAJOR_VERSION >= 3
+  return PyUnicode_AsUTF8(op);
+#else
+  return PyUnicode_AS_DATA(op);
+#endif
+
+}
+
+char *pyffi_PyUnicode_toCStringAndSize(pyobject op, Py_ssize_t *size) 
+{
+#if PY_MAJOR_VERSION >= 3
+  return PyUnicode_AsUTF8AndSize(op, size);
+#else
+  size[0] = PyUnicode_GET_SIZE(op);
+  return PyUnicode_AS_DATA(op);
+#endif
+
+}
+
+char *pyffi_PyObject_Type_toCString (pyobject x)
 {
   PyObject *typ, *str;
 
@@ -303,10 +317,15 @@ char *PyObject_Type_asString (pyobject x)
 
   Py_DecRef (typ);
 
-  return (((PyStringObject *)(str))->ob_sval);
+#if PY_MAJOR_VERSION >= 3
+  return PyUnicode_AsUTF8(str);
+#else
+  return PyBytes_AsString(str);
+#endif
+
 }
 
-char *PyErr_Occurred_asString (void)
+char *pyffi_PyErr_Occurred_toCString (void)
 {
   PyObject *exc, *str;
 
@@ -315,8 +334,13 @@ char *PyErr_Occurred_asString (void)
 
   Py_DecRef (exc);
 
-  return (((PyStringObject *)(str))->ob_sval);
-  }
+#if PY_MAJOR_VERSION >= 3
+  return PyUnicode_AsUTF8(str);
+#else
+  return PyBytes_AsString(str);
+#endif
+
+}
 
 int PyBuffer_Size(Py_buffer *buf)
 {
@@ -330,13 +354,13 @@ EOF
 (define (pyerror-exn x) (make-property-condition 'pyerror 'message x))
 
 (define (raise-python-exception)
-  (let* ((desc   (PyErr_Occurred_asString)))
+  (let* ((desc   (pyffi_PyErr_Occurred_toCString)))
     (PyErr_Clear)
     (print-error-message desc)
     (signal (pyerror-exn desc))))
 
 (define (python-exception-string)
-  (let* ((desc   (PyErr_Occurred_asString)))
+  (let* ((desc   (pyffi_PyErr_Occurred_toCString)))
     desc))
 
 (define-pytype py-int PyInt_FromLong PyInt_AsLong)
@@ -394,20 +418,20 @@ EOF
 
 (define (utf8-string->py-unicode value)
   ;; Given a Scheme UTF8 string, converts it into Python Unicode string
-  (let ((str (list->s32vector (map char->integer (utf8-string->list value)))))
-    (let ((res (pyffi_PyUnicode_FromUnicode str (s32vector-length str))))
-      res)))
+  (let ((res (pyffi_PyUnicode_fromCString value)))
+    res))
 
 (define (py-unicode->utf8-string value)
   ;; Given a Python Unicode string, converts it into Scheme UTF8 string
-  (let ((buf (pyffi_PyUnicode_AsUnicode value))
-	(len (pyffi_PyUnicode_GetSize value)))
-    (let loop ((i 0) (lst (list)))
-      (if (< i len)
-	  (loop (+ 1 i) (cons (pyffi_PyUnicode_ref buf i) lst))
-	  (list->string (map integer->char (reverse lst)))))))
+  (let* ((len-vector (make-u32vector 1))
+         (buf (pyffi_PyUnicode_toCStringAndSize value len-vector))
+         (len (u32vector-ref len-vector 0)))
+      (let loop ((i 0) (lst (list)))
+        (if (< i len)
+            (loop (+ 1 i) (cons (pyffi_PyUnicode_ref buf i) lst))
+            (list->string (map integer->char (reverse lst)))))))
 
-(define-pytype py-ascii PyString_FromString PyString_AsString)
+(define-pytype py-ascii pyffi_PyString_fromCString pyffi_PyString_toCString)
 (define-pytype py-unicode utf8-string->py-unicode py-unicode->utf8-string)
 
 (define-pytype py-dict 
@@ -460,6 +484,19 @@ EOF
 
 (define *py-types*
    `(
+     ("<class 'bool'>"      . ,py-bool)
+     ("<class 'bool'>"      . ,py-bool)
+     ("<class 'int'>"       . ,py-int)
+     ("<class 'float'>"     . ,py-float)
+     ("<class 'list'>"      . ,py-list)
+     ("<class 'str'>"       . ,py-ascii)
+     ("<class 'unicode'>"   . ,py-unicode)
+     ("<class 'dict'>"      . ,py-dict)
+     ("<class 'instance'>"  . ,py-instance)
+     ("<class 'tuple'>"     . ,py-tuple)
+     ("<class 'buffer'>"    . ,py-buffer)
+
+     ("<type 'bool'>"      . ,py-bool)
      ("<type 'bool'>"      . ,py-bool)
      ("<type 'int'>"       . ,py-int)
      ("<type 'float'>"     . ,py-float)
@@ -486,10 +523,7 @@ EOF
   (Py_Initialize)
   (*py-main-module* (PyImport_AddModule "__main__"))
   (*py-main-module-dict* (PyModule_GetDict_asPtr (*py-main-module*)))
-  (Py_IncRef (*py-main-module-dict*))
-  (let ((tmp (pyffi_PyRun_String "from __builtin__ import *" +py-single-input+ 
-                                 (*py-main-module-dict*) #f)))
-    (Py_DecRef tmp)))
+  (Py_IncRef (*py-main-module-dict*)))
 
 (define (py-stop)
   (Py_DecRef (*py-main-module-dict*))

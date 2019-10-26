@@ -23,14 +23,14 @@ table below. All other Python data types are represented as pointers.
 
 ## Installation
 
-The setup script of pyffi attempts to autodetect the location of
-the Python header files and libraries for Python versions 2.3-2.7. The
-autodetection routine checks some standard installation locations for
-Linux, Mac OS X, and Windows. If autodetection fails, you may also
-specify the header and library locations as follows:
+The setup script of pyffi attempts to autodetect the location of the
+Python header files and libraries for Python versions 2.6-2.7 or
+3.5-3.7. The autodetection routine checks some standard installation
+locations for Linux, Mac OS X, and Windows. If autodetection fails,
+you may also specify the header and library locations as follows:
 
 ```
- PYTHON_CFLAGS=-I/usr/include/python2.6 PYTHON_LFLAGS=-L/usr/lib PYTHON_LIBS=-lpython2.6 chicken-install pyffi
+ PYTHON_CFLAGS=-I/usr/include/python3.6 PYTHON_LFLAGS=-L/usr/lib PYTHON_LIBS=-lpython3.6 chicken-install pyffi
 ```
 
 ## Procedures

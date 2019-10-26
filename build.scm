@@ -28,6 +28,12 @@
 	(or (python-test ("<Python.h>"
                           "-I/System/Library/Frameworks/Python.framework/Headers"
                           "-framework Python"))
+	    (python-test ("<Python.h>" "-I/usr/include/python3.7m" "-lpython3.7m"))
+	    (python-test ("<Python.h>" "-I/usr/include/python3.7" "-lpython3.7"))
+	    (python-test ("<Python.h>" "-I/usr/include/python3.6m" "-lpython3.6m"))
+	    (python-test ("<Python.h>" "-I/usr/include/python3.6" "-lpython3.6"))
+	    (python-test ("<Python.h>" "-I/usr/include/python3.5m" "-lpython3.5m"))
+	    (python-test ("<Python.h>" "-I/usr/include/python3.5" "-lpython3.5"))
 	    (python-test ("<Python.h>" "-I/usr/include/python2.7" "-lpython2.7"))
 	    (python-test ("<Python.h>" "-I/usr/include/python2.6" "-lpython2.6"))
 	    (python-test ("<Python.h>" "" "-lpython27"))
