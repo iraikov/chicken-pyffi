@@ -151,51 +151,6 @@ method, #f is returned.
 (File.close f)
 ```
 
-### Python-UNO
-
-```scheme
- ;;
- ;; Python-UNO example from pyffi.lisp by Dmitri Hrapof.
- ;;
- ;; Before running the following code, you must make sure OpenOffice is
- ;; running as a server:
- ;;
- ;;  soffice "-accept=socket,host=localhost,port=2002;urp;"
- ;;
- (import pyffi)
- 
- (py-start)
- 
- (py-import "uno")
- 
- (define-pyfun "uno.getComponentContext")
- 
- (define-pyslot "ServiceManager")
- (define-pyslot "Text")
- 
- ;; Can't yet find out appropriate class, the following is lame
- (define-pymethod "createInstanceWithContext")
- (define-pymethod "resolve")
- (define-pymethod "getCurrentComponent")
- (define-pymethod "createTextCursor")
- (define-pymethod "insertString")
- 
- (define (message-uno str)
-   (let* ((lc (uno.getComponentContext))
- 	 (resolver (createInstanceWithContext 
- 		    (ServiceManager lc)
- 		    "com.sun.star.bridge.UnoUrlResolver" lc))
- 	 (ctx (resolve resolver "uno:socket,host=localhost,port=2002;urp;StarOffice.ComponentContext"))
- 	 (desktop (createInstanceWithContext 
- 		   (ServiceManager ctx)
- 		   "com.sun.star.frame.Desktop" ctx))
- 	 (model   (getCurrentComponent desktop))
- 	 (text    (Text model))
- 	 (cursor  (createTextCursor text)))
-     (insertString text cursor str 0)))
- 
- 
- (message-uno "Hello, world!")
 ``` 
 ### Matplotlib
 
@@ -230,7 +185,7 @@ method, #f is returned.
 ## License
 
 >
-> Copyright 2007-2019 Ivan Raikov. Based on pyffi.lisp by Dmitri Hrapof.
+> Copyright 2007-2020 Ivan Raikov. Based on pyffi.lisp by Dmitri Hrapof.
 > 
 > This program is free software: you can redistribute it and/or modify
 > it under the terms of the GNU General Public License as published by
