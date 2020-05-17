@@ -197,6 +197,35 @@ method, #f is returned.
  
  (message-uno "Hello, world!")
 ``` 
+### Matplotlib
+
+```scheme
+(import  pyffi)
+
+(py-start)
+
+(define (plot-data x-list y-list #!optional (filename "plot.png"))
+  ;; rough translation of the code inside this function to python:
+  ;; import matplotlib.pyplot
+  ;; fig-ax-tuple = matplotlib.pyplot.subplots()
+  ;; fig = fig-ax-tuple[0]
+  ;; ax = fig-ax-tuple[1]
+  ;; ax.plot(x-list, y-list)
+  ;; fig.savefig(filename)
+  (py-import "matplotlib.pyplot")
+  (define-pyfun "matplotlib.pyplot.subplots")
+  (define-pymethod "plot" x-list y-list)
+  (define-pymethod "savefig" file)
+  (let* ((fig-ax-tuple (matplotlib.pyplot.subplots))
+         (fig (vector-ref fig-ax-tuple 0))
+         (ax (vector-ref fig-ax-tuple 1)))
+    (plot ax x-list y-list)
+    (savefig fig filename)))
+
+(plot-data (list 1 2 3) (list 1 4 9) "test-plot.png")
+
+(py-stop)
+``` 
 
 ## License
 
