@@ -151,7 +151,6 @@ method, #f is returned.
 (File.close f)
 ```
 
-``` 
 ### Matplotlib
 
 ```scheme
