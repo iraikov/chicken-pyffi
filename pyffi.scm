@@ -87,8 +87,9 @@
 ;; Scheme -> Python
 (define (py-object-to value)
   (cond
+   ((and (number? value) (or (inexact? value) (real? value)))
+    (translate-to-foreign value py-float))
    ((integer? value)  (translate-to-foreign value py-int))
-   ((real? value)     (translate-to-foreign value py-float))
    ((alist? value)    (translate-to-foreign value py-dict))
    ((list? value)     (if (eq? 'ascii (car value)) 
 			  (translate-to-foreign (cadr value) py-ascii)
