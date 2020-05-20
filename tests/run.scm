@@ -5,5 +5,6 @@
 (py-import "sys")
 (assert (string? (py-eval "sys.version")))
 (print "Python version: " (py-eval "sys.version"))
+(print (py-eval "1"))
 (print (py-eval "1.0"))
 (print (py-eval "float('-inf')"))
