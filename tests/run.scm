@@ -8,3 +8,4 @@
 (print (py-eval "1"))
 (print (py-eval "1.0"))
 (print (py-eval "float('-inf')"))
+(print (py-eval "complex(1.0, 2.0)"))

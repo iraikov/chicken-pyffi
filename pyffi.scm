@@ -88,6 +88,7 @@
 (define (py-object-to value)
   (cond
    ((exact-integer? value)  (translate-to-foreign value py-int))
+   ((cplxnum? value)  (translate-to-foreign value py-complex))
    ((real? value)     (translate-to-foreign value py-float))
    ((alist? value)    (translate-to-foreign value py-dict))
    ((list? value)     (if (eq? 'ascii (car value)) 
@@ -199,6 +200,10 @@ int PyDict_SetItem (PyObject *, pyobject, pyobject);
 
 double PyFloat_AsDouble (PyObject *); 
 PyObject *PyFloat_FromDouble (double);
+
+PyObject* PyComplex_FromDoubles(double real, double imag);
+double PyComplex_RealAsDouble(PyObject *op);
+double PyComplex_ImagAsDouble(PyObject *op);
 
 pyobject PyImport_GetModuleDict (void);
 PyObject *PyImport_Import (pyobject );
@@ -416,6 +421,16 @@ EOF
 
 (define-pytype py-float PyFloat_FromDouble PyFloat_AsDouble)
 
+(define-pytype py-complex 
+  (lambda (value)
+    (let* ((r (real-part value))
+	   (i (imag-part value)))
+      (PyComplex_FromDoubles r i)))
+  (lambda (value)
+    (let* ((r (PyComplex_RealAsDouble value))
+           (i (PyComplex_ImagAsDouble value)))
+      (make-rectangular r i))))
+
 (define (utf8-string->py-unicode value)
   ;; Given a Scheme UTF8 string, converts it into Python Unicode string
   (let ((res (pyffi_PyUnicode_fromCString value)))
@@ -488,6 +503,7 @@ EOF
      ("<class 'bool'>"      . ,py-bool)
      ("<class 'int'>"       . ,py-int)
      ("<class 'float'>"     . ,py-float)
+     ("<class 'complex'>"   . ,py-complex)
      ("<class 'list'>"      . ,py-list)
      ("<class 'str'>"       . ,py-ascii)
      ("<class 'unicode'>"   . ,py-unicode)
@@ -495,18 +511,6 @@ EOF
      ("<class 'instance'>"  . ,py-instance)
      ("<class 'tuple'>"     . ,py-tuple)
      ("<class 'buffer'>"    . ,py-buffer)
-
-     ("<type 'bool'>"      . ,py-bool)
-     ("<type 'bool'>"      . ,py-bool)
-     ("<type 'int'>"       . ,py-int)
-     ("<type 'float'>"     . ,py-float)
-     ("<type 'list'>"      . ,py-list)
-     ("<type 'str'>"       . ,py-ascii)
-     ("<type 'unicode'>"   . ,py-unicode)
-     ("<type 'dict'>"      . ,py-dict)
-     ("<type 'instance'>"  . ,py-instance)
-     ("<type 'tuple'>"     . ,py-tuple)
-     ("<type 'buffer'>"    . ,py-buffer)
      )
    )
 
