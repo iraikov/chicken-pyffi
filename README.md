@@ -24,13 +24,42 @@ table below. All other Python data types are represented as pointers.
 ## Installation
 
 The setup script of pyffi attempts to autodetect the location of the
-Python header files and libraries for Python versions 2.6-2.7 or
-3.5-3.7. The autodetection routine checks some standard installation
+Python header files and libraries for Python versions 2.3-2.7 or
+3.x. The autodetection routine checks some standard installation
 locations for Linux, Mac OS X, and Windows. If autodetection fails,
 you may also specify the header and library locations as follows:
 
 ```
  PYTHON_CFLAGS=-I/usr/include/python3.6 PYTHON_LFLAGS=-L/usr/lib PYTHON_LIBS=-lpython3.6 chicken-install pyffi
+```
+
+In order to determine the correct paths, the command below can be used:
+
+```
+python3 -c "from sysconfig import get_paths; import pprint; pprint.pprint(get_paths())"
+```
+
+This returns something like:
+```
+{'data':        '/usr/local/Cellar/python@3.9/3.9.1_6/Frameworks/Python.framework/Versions/3.9',
+ 'include':     '/usr/local/Cellar/python@3.9/3.9.1_6/Frameworks/Python.framework/Versions/3.9/include/python3.9',
+ 'platinclude': '/usr/local/Cellar/python@3.9/3.9.1_6/Frameworks/Python.framework/Versions/3.9/include/python3.9',
+ 'platlib':     '/usr/local/Cellar/python@3.9/3.9.1_6/Frameworks/Python.framework/Versions/3.9/lib/python3.9/site-packages',
+ 'platstdlib':  '/usr/local/Cellar/python@3.9/3.9.1_6/Frameworks/Python.framework/Versions/3.9/lib/python3.9',
+ 'purelib':     '/usr/local/Cellar/python@3.9/3.9.1_6/Frameworks/Python.framework/Versions/3.9/lib/python3.9/site-packages',
+ 'scripts':     '/usr/local/Cellar/python@3.9/3.9.1_6/Frameworks/Python.framework/Versions/3.9/bin',
+ 'stdlib':      '/usr/local/Cellar/python@3.9/3.9.1_6/Frameworks/Python.framework/Versions/3.9/lib/python3.9'}
+```
+
+From that output include (for PYTHON_CFLAGS) and stdlib (for
+PYTHON_LFLAGS) are of interest. With this information the following environment
+variables can be passed to chicken-install:
+
+```
+PYTHON_CFLAGS=-I/usr/local/Cellar/python@3.9/3.9.1_6/Frameworks/Python.framework/Versions/3.9/include/python3.9 \
+PYTHON_LFLAGS=-L/usr/local/Cellar/python@3.9/3.9.1_6/Frameworks/Python.framework/Versions/3.9/lib \
+PYTHON_LIBS=-lpython3.9 \
+chicken-install pyffi
 ```
 
 ## Procedures
