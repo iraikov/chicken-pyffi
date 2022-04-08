@@ -25,17 +25,17 @@
 	     *py-functions* 
 	     (define-pyfun PyCallable_Check Py_DecRef)
 	     (define-pyslot PyObject_GetAttrString PyObject_SetAttrString )
-	     (define-pymethod PyObject_GetAttrString PyObject_CallObject PyObject_Call ))
+	     (define-pymethod PyObject_GetAttrString PyObject_CallObject PyObject_Call parse-argument-list ))
 
 
-   (import scheme (chicken base) (chicken foreign) (chicken syntax) 
+   (import scheme (chicken base) (chicken foreign) (chicken keyword) (chicken syntax) 
            (chicken blob) (chicken locative) (chicken string) (chicken condition)
            (only (chicken memory) pointer?) (only (chicken port) port-name)
-           (only srfi-1 first second every filter take-while)
+           (only srfi-1 first second every break)
            srfi-4 srfi-69 bind utf8 utf8-lolevel utf8-srfi-13 utf8-srfi-14)
 
-   (import-for-syntax (chicken base) (chicken string)
-                      (only srfi-1 first second every filter take-while)
+   (import-for-syntax (chicken base) (chicken keyword) (chicken string)
+                      (only srfi-1 first second every break)
                       srfi-69)
    
 (define (pyffi:error x . rest)
@@ -623,6 +623,20 @@ EOF
                                          (,PyObject_SetAttrString ,obj ,(->string name)
                                                                   (,%car ,rest))))))))))
 	  
+(define (alistify-kwargs lst accepted-keywords)
+  (let loop ((lst lst) (kwargs '()))
+    (cond
+     ((null? lst) kwargs)
+     ((null? (cdr lst)) (pyffi:error 'alistify-kwargs "Bad keyword argument."))
+     ((not (keyword? (car lst))) (pyffi:error 'alistify-kwargs "Not a keyword: " (car lst)))
+     ((not (member (car lst) accepted-keywords)) (pyffi:error 'alistify-kwargs "Unexpected keyword argument: " (car lst)))
+     (#t
+      (loop (cddr lst) (cons (list (keyword->string (car lst)) (cadr lst)) kwargs))))))
+
+(define (parse-argument-list args accepted-keywords)
+  (receive (args* kwargs*)
+      (break keyword? args)
+    (values args* (alistify-kwargs kwargs* accepted-keywords))))
 
 (define-syntax define-pymethod
   (er-macro-transformer
@@ -635,17 +649,16 @@ EOF
 	     (%quote           (r 'quote))
 	     (%cons            (r 'cons))
 	     (%list            (r 'list))
-	     (%identity        (r 'identity))
-	     (%filter          (r 'filter))
-	     (%take-while      (r 'take-while))
+	     (%break          (r 'break))
 	     (%lambda          (r 'lambda))
-	     (%symbol?         (r 'symbol?))
+	     (%keyword?         (r 'keyword?))
 	     (%null?           (r 'null?))
 	     (%and             (r 'and))
 	     (%not             (r 'not))
 	     (%if              (r 'if))
 	     (%list->vector     (r 'list->vector))
 	     (%->string         (r '->string))
+	     (parse-argument-list         (r 'parse-argument-list))
 	     (PyObject_GetAttrString     (r 'PyObject_GetAttrString))
 	     (PyObject_CallObject        (r 'PyObject_CallObject))
 	     (PyObject_Call              (r 'PyObject_Call))
@@ -658,14 +671,14 @@ EOF
                         (,PyObject_CallObject
                          (,PyObject_GetAttrString ,obj ,(->string name) )
                          (,%list->vector ,rest)))
-             (let ((kwargs (cadr kw)))
-               `(,%define (,proc-name ,obj #!rest ,rest #!key ,@(map (lambda (x) (list x #f)) kwargs))
-                          (let ((kwargs (,%filter ,%identity 
-                                                  (,%list 
-                                                   ,@(map (lambda (k x) `(,%and ,x (,%list (,%->string (quote ,k)) ,x))) kwargs kwargs)))))
+             (let ((kwargs (map (compose string->keyword symbol->string) (cadr kw))))
+               `(,%define (,proc-name ,obj #!rest ,rest)
+			  (receive
+			      (args kwargs)
+			      (,parse-argument-list ,rest ',kwargs)
                             (,PyObject_Call 
                              (,PyObject_GetAttrString ,obj ,(->string name) )
-                             (,%list->vector (,%take-while (,%lambda (x) (,%not (,%symbol? x))) ,rest))
+			     (list->vector args)
                              (,%if (,%null? kwargs) #f kwargs))
                             ))
                ))
