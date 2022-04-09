@@ -6,7 +6,7 @@
  (category ffi)
  (dependencies srfi-1 srfi-69 bind utf8)
  (build-dependencies compile-file pkg-config srfi-13)
- (test-dependencies test)
+ (test-dependencies brev-separate test)
  (author "Ivan Raikov")
  (components (extension pyffi (custom-build "build.sh") (csc-options "-d2" "-O0")))
  )
