@@ -1,6 +1,6 @@
 
 (import (chicken base) (chicken format) (chicken process)
-        (chicken process-context) srfi-13 compile-file)
+        (chicken process-context) srfi-1 srfi-13 compile-file pkg-config)
 
 (define args (command-line-arguments))
 
@@ -19,15 +19,23 @@
      (condition-case (python-try-compile flags ...)
 		     (t ()    #f)))))
 
+(define (python-pkg-config-test package)
+  (and-let* ((cflags (pkg-config:cflags package))
+	     (libs (pkg-config:libs package)))
+    (python-test ("<python.h>" cflags libs))))
+
 (define cpp+ld-options
   (let ((cflags (get-environment-variable "PYTHON_CFLAGS"))
 	(lflags (get-environment-variable "PYTHON_LFLAGS"))
 	(libs   (get-environment-variable "PYTHON_LIBS")))
     (if (and cflags lflags libs)
 	(python-test ("<Python.h>" cflags (string-append lflags " " libs)))
-	(or (python-test ("<Python.h>"
-                          "-I/System/Library/Frameworks/Python.framework/Headers"
-                          "-framework Python"))
+	(or
+	 (any python-pkg-config-test '("python3-embed" "python3" "python"))
+	 (python-test ("<Python.h>"
+			  "-I/System/Library/Frameworks/Python.framework/Headers"
+			  "-framework Python"))
+	    (python-test ("<Python.h>" "-I/usr/include/python3.10" "-lpython3.10"))
 	    (python-test ("<Python.h>" "-I/usr/include/python3.9m" "-lpython3.9m"))
 	    (python-test ("<Python.h>" "-I/usr/include/python3.9" "-lpython3.9"))
 	    (python-test ("<Python.h>" "-I/usr/include/python3.8m" "-lpython3.8m"))
