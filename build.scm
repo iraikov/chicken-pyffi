@@ -22,7 +22,7 @@
 (define (python-pkg-config-test package)
   (and-let* ((cflags (pkg-config:cflags package))
 	     (libs (pkg-config:libs package)))
-    (python-test ("<python.h>" cflags libs))))
+    (python-test ("<Python.h>" (string-join cflags " " 'infix) (string-join libs " " 'infix)))))
 
 (define cpp+ld-options
   (let ((cflags (get-environment-variable "PYTHON_CFLAGS"))
