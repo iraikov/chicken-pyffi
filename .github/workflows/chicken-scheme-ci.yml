@@ -21,7 +21,7 @@ jobs:
       run: |
         sudo apt-get update -y
         sudo apt-get install libpython3-dev
-        sudo /usr/local/bin/chicken-install test
+        sudo /usr/local/bin/chicken-install test brev-separate
     - name: Build
       run: sudo /usr/local/bin/chicken-install
     - name: Run tests
@@ -39,8 +39,9 @@ jobs:
         version: '5.2.0'
     - name: Install dependencies
       run: |
-        sudo /usr/local/bin/chicken-install test
+        sudo /usr/local/bin/chicken-install test brev-separate
+        python3 -c "from sysconfig import get_paths; import pprint; pprint.pprint(get_paths())"
     - name: Build
-      run: sudo /usr/local/bin/chicken-install
+      run: sudo /usr/local/bin/chicken-install 
     - name: Run tests
       run: CHICKEN_CSI=/usr/local/bin/csi /usr/local/bin/csi -s tests/run.scm
