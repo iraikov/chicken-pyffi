@@ -42,6 +42,10 @@ jobs:
         sudo /usr/local/bin/chicken-install test brev-separate
         python3 -c "from sysconfig import get_paths; import pprint; pprint.pprint(get_paths())"
     - name: Build
-      run: sudo /usr/local/bin/chicken-install 
+      run: |
+        sudo PYTHON_CFLAGS=-I/Library/Frameworks/Python.framework/Versions/3.11/include/python3.11 \
+        PYTHON_LFLAGS=-L/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11 \
+        PYTHON_LIBS=-lpython3.11 \
+        /usr/local/bin/chicken-install 
     - name: Run tests
       run: CHICKEN_CSI=/usr/local/bin/csi /usr/local/bin/csi -s tests/run.scm
