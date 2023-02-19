@@ -1,0 +1,46 @@
+name: Chicken Scheme CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build-linux:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - uses: iraikov/setup-scheme@master
+      with:
+        implementation: 'chicken'
+        version: '5.2.0'
+    - name: Install dependencies
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install libpython3-dev
+        sudo /usr/local/bin/chicken-install test
+    - name: Build
+      run: sudo /usr/local/bin/chicken-install
+    - name: Run tests
+      run: CHICKEN_CSI=/usr/local/bin/csi /usr/local/bin/csi -s tests/run.scm
+
+  build-macos:
+
+    runs-on: macOS-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - uses: iraikov/setup-scheme@master
+      with:
+        implementation: 'chicken'
+        version: '5.2.0'
+    - name: Install dependencies
+      run: |
+        sudo /usr/local/bin/chicken-install test
+    - name: Build
+      run: sudo /usr/local/bin/chicken-install
+    - name: Run tests
+      run: CHICKEN_CSI=/usr/local/bin/csi /usr/local/bin/csi -s tests/run.scm
