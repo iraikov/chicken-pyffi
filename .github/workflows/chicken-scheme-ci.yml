@@ -44,7 +44,7 @@ jobs:
     - name: Build
       run: |
         sudo PYTHON_CFLAGS=-I/Library/Frameworks/Python.framework/Versions/3.11/include/python3.11 \
-        PYTHON_LFLAGS=-L/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11 \
+        PYTHON_LFLAGS=-L/Library/Frameworks/Python.framework/Versions/3.11/lib \
         PYTHON_LIBS=-lpython3.11 \
         /usr/local/bin/chicken-install 
     - name: Run tests
