@@ -646,6 +646,7 @@ EOF
       (let ((scheme-name (member 'scheme-name: rest))
             (kw (member 'kw: rest)))
        (let ((%define          (r 'define))
+             (%receive         (r 'receive))
 	     (%quote           (r 'quote))
 	     (%cons            (r 'cons))
 	     (%list            (r 'list))
@@ -658,6 +659,8 @@ EOF
 	     (%if              (r 'if))
 	     (%list->vector     (r 'list->vector))
 	     (%->string         (r '->string))
+             (args              (r 'args))
+             (kwargs            (r 'kwargs))
 	     (parse-argument-list         (r 'parse-argument-list))
 	     (PyObject_GetAttrString     (r 'PyObject_GetAttrString))
 	     (PyObject_CallObject        (r 'PyObject_CallObject))
@@ -671,15 +674,15 @@ EOF
                         (,PyObject_CallObject
                          (,PyObject_GetAttrString ,obj ,(->string name) )
                          (,%list->vector ,rest)))
-             (let ((kwargs (map (compose string->keyword symbol->string) (cadr kw))))
+             (let ((the-kwargs (map (compose string->keyword symbol->string) (cadr kw))))
                `(,%define (,proc-name ,obj #!rest ,rest)
-			  (receive
-			      (args kwargs)
-			      (,parse-argument-list ,rest ',kwargs)
+			  (,%receive
+			      (,args ,kwargs)
+			      (,parse-argument-list ,rest ',the-kwargs)
                             (,PyObject_Call 
                              (,PyObject_GetAttrString ,obj ,(->string name) )
-			     (list->vector args)
-                             (,%if (,%null? kwargs) #f kwargs))
+			     (list->vector ,args)
+                             (,%if (,%null? ,kwargs) #f ,kwargs))
                             ))
                ))
          ))
