@@ -160,9 +160,9 @@ EOP
 (test-signals-condition "positional arg after keyword" 'exn
   (bar test-object 5 a4: 7 extra-positional))
 
-;; TODO: test that a missing kw arg value raises an exception; causes a segfault in the Github CI environment
-;(test-signals-condition "missing value of keyword arg" 'exn
-;  (kwo test-object a: 1 b:))
+;; test that a missing kw arg value raises an exception
+(test-signals-condition "missing value of keyword arg" 'exn
+  (kwo test-object a: 1 b:))
 
 ;; TODO: test duplicate keywords; should be caught by Scheme parser, but it goes through on 5.4.0
 ;(test-signals-condition "duplicate keyword arguments" 'exn

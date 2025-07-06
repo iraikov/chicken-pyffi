@@ -1,7 +1,7 @@
 ;;
 ;; Python-Scheme FFI. Based on pyffi.lisp by Dmitri Hrapof.
 ;; Adapted to Chicken Scheme by Ivan Raikov.
-;; Chicken Scheme code copyright 2007-2019 Ivan Raikov.
+;; Chicken Scheme code copyright 2007-2025 Ivan Raikov.
 ;;
 ;;
 ;; This program is free software: you can redistribute it and/or
@@ -216,14 +216,13 @@ C_word PyBool_asBool(PyObject *x)
    return C_SCHEME_FALSE;
 }
 
-int pyffi_PyUnicode_ref (int *x, int i)
+int pyffi_PyUnicode_ref (PyObject *x, int i)
 {
    int result;
 
-   if (i >= 0) 
-     result = x[i];
-   else
-     result = 0;
+   Py_UCS4 char_code_point = PyUnicode_ReadChar(x, i);
+
+   result = char_code_point;
    
    return result;
 }
@@ -237,9 +236,10 @@ int pyffi_PyUnicode_ref (int *x, int i)
 
 
 (define PyBool-AsBool (foreign-lambda scheme-object "PyBool_asBool" nonnull-c-pointer))
-(define pyffi_PyUnicode_ref (foreign-lambda integer "pyffi_PyUnicode_ref" nonnull-c-pointer integer))
 
 (bind-type pyobject (c-pointer "PyObject") py-object-to py-object-from)
+
+(define pyffi_PyUnicode_ref (foreign-lambda integer "pyffi_PyUnicode_ref" pyobject integer))
 
 
 ;; Parse but do not embed
@@ -330,7 +330,7 @@ PyObject* pyffi_PyString_fromCString(const char *string)
   
 }
 
-char *pyffi_PyString_toCString(pyobject op) 
+const char *pyffi_PyString_toCString(pyobject op) 
 {
 #if PY_MAJOR_VERSION >= 3
   return PyUnicode_AsUTF8(op);
@@ -340,7 +340,7 @@ char *pyffi_PyString_toCString(pyobject op)
 
 }
 
-char *pyffi_PyString_toCStringAndSize(pyobject op, Py_ssize_t *size) 
+const char *pyffi_PyString_toCStringAndSize(pyobject op, Py_ssize_t *size) 
 {
 #if PY_MAJOR_VERSION >= 3
   return PyUnicode_AsUTF8AndSize(op, size);
@@ -356,7 +356,7 @@ PyObject* pyffi_PyUnicode_fromCString(const char *string)
   return PyUnicode_FromString(string);
 }
 
-char *pyffi_PyUnicode_toCString(pyobject op) 
+const char *pyffi_PyUnicode_toCString(pyobject op) 
 {
 #if PY_MAJOR_VERSION >= 3
   return PyUnicode_AsUTF8(op);
@@ -366,7 +366,7 @@ char *pyffi_PyUnicode_toCString(pyobject op)
 
 }
 
-char *pyffi_PyUnicode_toCStringAndSize(pyobject op, Py_ssize_t *size) 
+const char *pyffi_PyUnicode_toCStringAndSize(pyobject op, Py_ssize_t *size) 
 {
 #if PY_MAJOR_VERSION >= 3
   return PyUnicode_AsUTF8AndSize(op, size);
@@ -377,7 +377,18 @@ char *pyffi_PyUnicode_toCStringAndSize(pyobject op, Py_ssize_t *size)
 
 }
 
-char *pyffi_PyObject_Type_toCString (pyobject x)
+long pyffi_PyUnicode_GetLength(pyobject op) 
+{
+#if PY_MAJOR_VERSION >= 3
+  return PyUnicode_GET_LENGTH(op);
+#else
+  long size = PyUnicode_GET_SIZE(op);
+  return size;
+#endif
+
+}
+
+const char *pyffi_PyObject_Type_toCString (pyobject x)
 {
   PyObject *typ, *str;
 
@@ -394,7 +405,7 @@ char *pyffi_PyObject_Type_toCString (pyobject x)
 
 }
 
-char *pyffi_PyErr_Occurred_toCString (void)
+const char *pyffi_PyErr_Occurred_toCString (void)
 {
   PyObject *exc, *str;
 
@@ -502,12 +513,10 @@ EOF
 
 (define (py-unicode->utf8-string value)
   ;; Given a Python Unicode string, converts it into Scheme UTF8 string
-  (let* ((len-vector (make-u32vector 1))
-         (buf (pyffi_PyUnicode_toCStringAndSize value len-vector))
-         (len (u32vector-ref len-vector 0)))
+  (let ((len (pyffi_PyUnicode_GetLength value)))
       (let loop ((i 0) (lst (list)))
         (if (< i len)
-            (loop (+ 1 i) (cons (pyffi_PyUnicode_ref buf i) lst))
+            (loop (+ 1 i) (cons (pyffi_PyUnicode_ref value i) lst))
             (list->string (map integer->char (reverse lst)))))))
 
 (define-pytype py-ascii pyffi_PyString_fromCString pyffi_PyString_toCString)
@@ -550,7 +559,7 @@ EOF
   (lambda (value)
     (let ((buf (make-blob (blob-size value))))
       (if (not buf) (raise-python-exception))
-      (PyBuffer_FromContiguous buf value (blob-size value) #\C)
+      (PyBuffer_FromContiguous (make-locative buf) (make-locative value) (blob-size value) #\C)
       buf
       ))
   ;; Given a Python buffer, converts it into a Scheme blob
