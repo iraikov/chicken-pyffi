@@ -58,31 +58,95 @@
 
 (define-record pytype name to from)
 
+;; Fixed macros using implicit renaming (ir-macro-transformer)
+;; Only using inject when we need to break hygiene for specific bindings
+
 (define-syntax define-pytype
-  (er-macro-transformer
-   (lambda (x r c)
-     (let ((%define (r 'define))
-           (%make-pytype (r 'make-pytype))
-           (name (cadr x))
+  (ir-macro-transformer
+   (lambda (x inject compare)
+     (let ((name (cadr x))
            (to   (caddr x))
            (from (cadddr x)))
-       `(,%define ,name (,%make-pytype ',name ,to ,from))))))
+       `(define ,name (make-pytype ',name ,to ,from))))))
 
 (define-syntax translate-to-foreign
-  (er-macro-transformer
-   (lambda (x r c)
-     (let ((%pytype-to (r 'pytype-to))
-           (x (cadr x))
+  (ir-macro-transformer
+   (lambda (x inject compare)
+     (let ((x (cadr x))
            (typ (caddr x)))
-       `((,%pytype-to ,typ) ,x)))))
+       `((pytype-to ,typ) ,x)))))
 
 (define-syntax translate-from-foreign
-  (er-macro-transformer
-   (lambda (x r c)
-     (let ((%pytype-from (r 'pytype-from))
-           (x (cadr x))
+  (ir-macro-transformer
+   (lambda (x inject compare)
+     (let ((x (cadr x))
            (typ (caddr x)))
-       `((,%pytype-from ,typ) ,x)))))
+       `((pytype-from ,typ) ,x)))))
+
+(define-syntax define-pyfun
+  (ir-macro-transformer
+   (lambda (x inject compare)
+     (let* ((expr (cadr x))
+            (args (cddr x))
+            (func (gensym 'func))  ; Generate a unique name for the Scheme variable
+            (name (if (list? expr) 
+                      (second expr) 
+                      (string->symbol expr)))
+            (form (if (list? expr) (first expr) expr)))
+       `(define ,(cons name args)
+          (let ((,func (hash-table-ref/default ,(inject '*py-functions*) ',name #f)))
+            (if (not ,func)
+                (begin
+                  (set! ,func (py-eval ,form))
+                  (if (not ,func)
+                      (raise-python-exception))
+                  (if (not (PyCallable_Check ,func))
+                      (begin
+                        (Py_DecRef ,func)
+                        (raise-python-exception)))
+                  (hash-table-set! ,(inject '*py-functions*) ',name ,func)))
+            (py-apply ,func . ,args)))))))
+
+(define-syntax define-pyslot
+  (ir-macro-transformer
+   (lambda (x inject compare)
+     (let ((name (cadr x)) 
+           (rest (cddr x)))
+       (let-optionals rest ((scheme-name #f))
+         (let ((proc-name (or scheme-name (string->symbol name)))
+               (obj (gensym 'obj))
+               (rest (gensym 'rest)))
+           `(define (,proc-name ,obj . ,rest)
+              (if (null? ,rest)
+                  (PyObject_GetAttrString ,obj ,(->string name))
+                  (PyObject_SetAttrString ,obj ,(->string name) (car ,rest))))))))))
+
+(define-syntax define-pymethod
+  (ir-macro-transformer
+   (lambda (x inject compare)
+     (let ((name (cadr x)) 
+           (rest (cddr x)))
+       (let ((scheme-name (member 'scheme-name: rest))
+             (kw (member 'kw: rest)))
+         (let ((proc-name (or (and scheme-name (cadr scheme-name)) (string->symbol name)))
+               (obj (gensym 'obj))
+               (rest (gensym 'rest)))
+           (if (not kw)
+               `(define (,proc-name ,obj #!rest ,rest)
+                  (PyObject_CallObject
+                   (PyObject_GetAttrString ,obj ,(->string name))
+                   (list->vector ,rest)))
+               (let ((keyword-symbols (cadr kw)))
+                 `(define (,proc-name ,obj #!rest ,rest)
+                    (let ((accepted-kwargs (map (lambda (sym) (string->keyword (symbol->string sym))) 
+                                                ',keyword-symbols)))
+                      (receive (args kwargs)
+                          (parse-argument-list ,rest accepted-kwargs)
+                        (PyObject_Call 
+                         (PyObject_GetAttrString ,obj ,(->string name))
+                         (list->vector args)
+                         (if (null? kwargs) #f kwargs)))))))))))))
+
 
 ;; Scheme -> Python
 (define (py-object-to value)
@@ -559,69 +623,6 @@ EOF
 (define (py-apply func . rest)
   (PyObject_CallObject func (list->vector rest)))
 
-
-;; TODO: add keyword arguments
-(define-syntax define-pyfun
-  (er-macro-transformer
-   (lambda (x r c)
-     (let* ((%define (r 'define))
-            (%let    (r 'let))
-            (%if     (r 'if))
-            (%begin  (r 'begin))
-            (%set!   (r 'set!))
-            (not     (r 'not))
-            (alist-ref       (r 'alist-ref))
-            (alist-update!   (r 'alist-update!))
-            (py-eval   (r 'py-eval))
-            (py-apply  (r 'py-apply))
-            (raise-python-exception  (r 'raise-python-exception))
-            (PyCallable_Check  (r 'PyCallable_Check))
-            (Py_DecRef         (r 'Py_DecRef))
-            (expr (cadr x))
-            (args (cddr x))
-            (func (r 'func))
-            (name (if (list? expr) 
-                      (second expr) 
-                      (string->symbol expr)))
-            (form          (if (list? expr) (first expr) expr)))
-       `(,%define ,(cons name args)
-                  (,%let ((,func (,hash-table-ref/default *py-functions* ',name #f)))
-                         (,%if (,not ,func)
-                               (,%begin
-                                (,%set! ,func (,py-eval ,form))
-                                (,%if (,not ,func)
-                                      (,raise-python-exception))
-                                (,%if (,not (,PyCallable_Check ,func))
-                                      (,%begin
-                                       (,Py_DecRef ,func)
-                                       (,raise-python-exception)))
-                                (,hash-table-set! *py-functions* ',name ,func)))
-                         (,py-apply ,func . ,args)
-                         ))
-       ))
-   ))
-
-
-(define-syntax define-pyslot
-  (er-macro-transformer
-   (lambda (x r c)
-     (let ((name (cadr x)) 
-           (rest (cddr x)))
-       (let-optionals rest ((scheme-name #f))
-                      (let ((%define (r 'define))
-                            (%if     (r 'if))
-                            (%null?   (r 'null?))
-                            (%car     (r 'car))
-                            (PyObject_GetAttrString     (r 'PyObject_GetAttrString))
-                            (PyObject_SetAttrString     (r 'PyObject_SetAttrString))
-                            (proc-name   (or scheme-name (string->symbol name)))
-                            (obj    (r 'obj))
-                            (rest   (r 'rest)))
-                        `(,%define (,proc-name ,obj . ,rest)
-                                   (,%if (,%null? ,rest)
-                                         (,PyObject_GetAttrString ,obj ,(->string name))
-                                         (,PyObject_SetAttrString ,obj ,(->string name)
-                                                                  (,%car ,rest))))))))))
 	  
 (define (alistify-kwargs lst accepted-keywords)
   (let loop ((lst lst) (kwargs '()))
@@ -637,54 +638,6 @@ EOF
   (receive (args* kwargs*)
       (break keyword? args)
     (values args* (alistify-kwargs kwargs* accepted-keywords))))
-
-(define-syntax define-pymethod
-  (er-macro-transformer
-  (lambda (x r c)
-    (let ((name (cadr x)) 
-	  (rest (cddr x)))
-      (let ((scheme-name (member 'scheme-name: rest))
-            (kw (member 'kw: rest)))
-       (let ((%define          (r 'define))
-	     (%quote           (r 'quote))
-	     (%cons            (r 'cons))
-	     (%list            (r 'list))
-	     (%break          (r 'break))
-	     (%lambda          (r 'lambda))
-	     (%keyword?         (r 'keyword?))
-	     (%null?           (r 'null?))
-	     (%and             (r 'and))
-	     (%not             (r 'not))
-	     (%if              (r 'if))
-	     (%list->vector     (r 'list->vector))
-	     (%->string         (r '->string))
-	     (parse-argument-list         (r 'parse-argument-list))
-	     (PyObject_GetAttrString     (r 'PyObject_GetAttrString))
-	     (PyObject_CallObject        (r 'PyObject_CallObject))
-	     (PyObject_Call              (r 'PyObject_Call))
-	     (proc-name   (or (and scheme-name (cadr scheme-name)) (string->symbol name)))
-	     (obj    (r 'obj))
-	     (rest   (r 'rest))
-             )
-         (if (not kw)
-             `(,%define (,proc-name ,obj #!rest ,rest)
-                        (,PyObject_CallObject
-                         (,PyObject_GetAttrString ,obj ,(->string name) )
-                         (,%list->vector ,rest)))
-             (let ((kwargs (map (compose string->keyword symbol->string) (cadr kw))))
-               `(,%define (,proc-name ,obj #!rest ,rest)
-			  (receive
-			      (args kwargs)
-			      (,parse-argument-list ,rest ',kwargs)
-                            (,PyObject_Call 
-                             (,PyObject_GetAttrString ,obj ,(->string name) )
-			     (list->vector args)
-                             (,%if (,%null? kwargs) #f kwargs))
-                            ))
-               ))
-         ))
-      ))
-  ))
 
 
 
