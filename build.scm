@@ -35,6 +35,8 @@
 	 (python-test ("<Python.h>"
 			  "-I/System/Library/Frameworks/Python.framework/Headers"
 			  "-framework Python"))
+	    (python-test ("<Python.h>" "-I/usr/include/python3.12" "-lpython3.12"))
+	    (python-test ("<Python.h>" "-I/usr/include/python3.11" "-lpython3.11"))
 	    (python-test ("<Python.h>" "-I/usr/include/python3.10" "-lpython3.10"))
 	    (python-test ("<Python.h>" "-I/usr/include/python3.9m" "-lpython3.9m"))
 	    (python-test ("<Python.h>" "-I/usr/include/python3.9" "-lpython3.9"))

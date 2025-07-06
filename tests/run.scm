@@ -216,7 +216,7 @@ EOP
 (test "many keywords - all"
   (vector 1 2 3 4 5 6 7 8 9 10)
   (many_kw_test test-object k1: 1 k2: 2 k3: 3 k4: 4 k5: 5 
-                          k6: 6 k7: 7 k8: 8 k9: 9 k10: 10))
+                k6: 6 k7: 7 k8: 8 k9: 9 k10: 10))
 
 (test "many keywords - some"
   (vector 1 py-none py-none 4 py-none 6 py-none py-none 9 py-none)
