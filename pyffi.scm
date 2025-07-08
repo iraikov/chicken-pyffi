@@ -168,7 +168,7 @@
 ;; Python -> Scheme
 (define (py-object-from value)
   (if (not value) (raise-python-exception))
-  (let ((typ-name  (pyffi_PyObject_Type_toCString value)))
+  (let ((typ-name  (py-object-type value)))
     (let ((typ-key (alist-ref typ-name *py-types* string=?)))
       (if typ-key
 	  (translate-from-foreign value typ-key)
@@ -214,17 +214,6 @@ C_word PyBool_asBool(PyObject *x)
 {
    if (x == (Py_True)) return C_SCHEME_TRUE;
    return C_SCHEME_FALSE;
-}
-
-int pyffi_PyUnicode_ref (PyObject *x, int i)
-{
-   int result;
-
-   Py_UCS4 char_code_point = PyUnicode_ReadChar(x, i);
-
-   result = char_code_point;
-   
-   return result;
 }
 
 #if PY_MAJOR_VERSION >= 3
@@ -299,6 +288,15 @@ int PyTuple_SetItem (PyObject *, int, pyobject);
 
 PyObject *PyBool_FromLong(long);
 
+PyObject *PyBytes_FromStringAndSize(const char *, long);
+int PyBytes_Check(PyObject *);
+long PyBytes_Size(PyObject *);
+char *PyBytes_AsString(PyObject *);
+int PyByteArray_Check(PyObject *);
+long PyByteArray_Size(PyObject *);
+char *PyByteArray_AsString(PyObject *);
+
+int PyUnicode_Check(PyObject *);
 
 int PyObject_GetBuffer(PyObject *exporter, Py_buffer *view, int flags);
 int PyBuffer_ToContiguous(void *buf, Py_buffer *src, int len, char order);
@@ -312,7 +310,6 @@ EOF
 (bind* #<<EOF
 
 PyObject *pyffi_PyImport_ImportModuleEx (char *, PyObject *, PyObject *, pyobject);
-
 pyobject pyffi_PyRun_String (const char *str, int s, PyObject *g, PyObject *l);
 
 PyObject *PyModule_GetDict_asPtr (PyObject *x)
@@ -327,28 +324,19 @@ PyObject* pyffi_PyString_fromCString(const char *string)
 #else
   return PyBytes_FromString(string);
 #endif
-  
 }
 
-const char *pyffi_PyString_toCString(pyobject op) 
+char *pyffi_PyString_toCString(pyobject op) 
 {
 #if PY_MAJOR_VERSION >= 3
-  return PyUnicode_AsUTF8(op);
+  const char *utf8 = PyUnicode_AsUTF8(op);
+  if (!utf8) return NULL;
+  return strdup(utf8);
 #else
-  return PyBytes_AsString(op);
+  const char *bytes = PyBytes_AsString(op);
+  if (!bytes) return NULL;
+  return strdup(bytes);
 #endif
-
-}
-
-const char *pyffi_PyString_toCStringAndSize(pyobject op, Py_ssize_t *size) 
-{
-#if PY_MAJOR_VERSION >= 3
-  return PyUnicode_AsUTF8AndSize(op, size);
-#else
-  
-  return PyBytes_AsStringAndSize(op, size);
-#endif
-
 }
 
 PyObject* pyffi_PyUnicode_fromCString(const char *string)
@@ -356,25 +344,17 @@ PyObject* pyffi_PyUnicode_fromCString(const char *string)
   return PyUnicode_FromString(string);
 }
 
-const char *pyffi_PyUnicode_toCString(pyobject op) 
+char *pyffi_PyUnicode_toCString(pyobject op) 
 {
 #if PY_MAJOR_VERSION >= 3
-  return PyUnicode_AsUTF8(op);
+  const char *utf8 = PyUnicode_AsUTF8(op);
+  if (!utf8) return NULL;
+  return strdup(utf8);
 #else
-  return PyUnicode_AS_DATA(op);
+  const char *data = PyUnicode_AS_DATA(op);
+  if (!data) return NULL;
+  return strdup(data);
 #endif
-
-}
-
-const char *pyffi_PyUnicode_toCStringAndSize(pyobject op, Py_ssize_t *size) 
-{
-#if PY_MAJOR_VERSION >= 3
-  return PyUnicode_AsUTF8AndSize(op, size);
-#else
-  size[0] = PyUnicode_GET_SIZE(op);
-  return PyUnicode_AS_DATA(op);
-#endif
-
 }
 
 long pyffi_PyUnicode_GetLength(pyobject op) 
@@ -382,44 +362,81 @@ long pyffi_PyUnicode_GetLength(pyobject op)
 #if PY_MAJOR_VERSION >= 3
   return PyUnicode_GET_LENGTH(op);
 #else
-  long size = PyUnicode_GET_SIZE(op);
-  return size;
+  return PyUnicode_GET_SIZE(op);
 #endif
-
 }
 
-const char *pyffi_PyObject_Type_toCString (pyobject x)
+char *pyffi_PyObject_Type_toCString (pyobject x)
 {
   PyObject *typ, *str;
+  char *result;
 
   typ = PyObject_Type (x);
+  if (!typ) return NULL;
+  
   str = PyObject_Str (typ);
-
   Py_DecRef (typ);
+  
+  if (!str) return NULL;
 
 #if PY_MAJOR_VERSION >= 3
-  return PyUnicode_AsUTF8(str);
+  const char *utf8 = PyUnicode_AsUTF8(str);
+  result = utf8 ? strdup(utf8) : NULL;
 #else
-  return PyBytes_AsString(str);
+  const char *bytes = PyBytes_AsString(str);
+  result = bytes ? strdup(bytes) : NULL;
 #endif
 
+  Py_DecRef (str);
+  return result;
 }
 
-const char *pyffi_PyErr_Occurred_toCString (void)
+char *pyffi_PyErr_Occurred_toCString (void)
 {
   PyObject *exc, *str;
+  char *result;
 
-  exc = PyErr_Occurred ();
+  exc = PyErr_Occurred ();  /* Borrowed reference */
+  if (!exc) return NULL;
+  
   str = PyObject_Str (exc);
-
-  Py_DecRef (exc);
+  if (!str) return NULL;
 
 #if PY_MAJOR_VERSION >= 3
-  return PyUnicode_AsUTF8(str);
+  const char *utf8 = PyUnicode_AsUTF8(str);
+  result = utf8 ? strdup(utf8) : NULL;
 #else
-  return PyBytes_AsString(str);
+  const char *bytes = PyBytes_AsString(str);
+  result = bytes ? strdup(bytes) : NULL;
 #endif
 
+  Py_DecRef (str);  /* Only decref str, not exc */
+  return result;
+}
+
+/* Safe Unicode character access */
+int pyffi_PyUnicode_ref (PyObject *x, int i)
+{
+  if (!x || !PyUnicode_Check(x)) return 0;
+  
+  Py_ssize_t length = PyUnicode_GET_LENGTH(x);
+  if (i < 0 || i >= length) return 0;
+
+  Py_UCS4 char_code_point = PyUnicode_ReadChar(x, i);
+  
+  if (char_code_point == (Py_UCS4)-1 && PyErr_Occurred()) {
+    return 0;
+  }
+  
+  if (char_code_point > 0x10FFFF) return 0;  /* Invalid Unicode */
+  
+  return (int)char_code_point;
+}
+
+/* Memory cleanup utility */
+void pyffi_free_string(char *str) 
+{
+  if (str) free(str);
 }
 
 int PyBuffer_Size(Py_buffer *buf)
@@ -430,17 +447,16 @@ int PyBuffer_Size(Py_buffer *buf)
 EOF
 )
 
-
 (define (pyerror-exn x) (make-property-condition 'pyerror 'message x))
 
 (define (raise-python-exception)
-  (let* ((desc   (pyffi_PyErr_Occurred_toCString)))
+  (let* ((desc (pyffi_PyErr_Occurred_toCString)))
     (PyErr_Clear)
     (print-error-message desc)
     (signal (pyerror-exn desc))))
 
 (define (python-exception-string)
-  (let* ((desc   (pyffi_PyErr_Occurred_toCString)))
+  (let* ((desc (pyffi_PyErr_Occurred_toCString)))
     desc))
 
 (define-pytype py-int PyInt_FromLong PyInt_AsLong)
