@@ -101,6 +101,134 @@ EOP
 (test-signals-condition "non-keyword passed after keyword" 'exn (kwo test-object a: 7 9))
 (test-end "method parameter handling")
 
+(test-begin "keyword stress tests")
+
+;; Test multiple keywords in different orders
+(test "multiple keywords in original order"
+  (vector test-object 5 2 3 4 py-none) 
+  (bar test-object 5 a2: 2 a3: 3 a4: 4))
+
+(test "multiple keywords in reverse order"
+  (vector test-object 5 py-none 3 4 5) 
+  (bar test-object 5 a5: 5 a4: 4 a3: 3))
+
+(test "multiple keywords in mixed order"
+  (vector test-object 5 py-none py-none 7 9) 
+  (bar test-object 5 a5: 9 a4: 7))
+
+;; Test all keywords provided
+(test "all keywords provided"
+  (vector test-object 5 10 20 30 40) 
+  (bar test-object 5 a2: 10 a3: 20 a4: 30 a5: 40))
+
+;; Test single keywords (different ones)
+(test "only a2 keyword"
+  (vector test-object 5 100 py-none py-none py-none) 
+  (bar test-object 5 a2: 100))
+
+(test "only a3 keyword"
+  (vector test-object 5 py-none 200 py-none py-none) 
+  (bar test-object 5 a3: 200))
+
+(test "only a5 keyword"
+  (vector test-object 5 py-none py-none py-none 500) 
+  (bar test-object 5 a5: 500))
+
+;; Test kwargs-only method with multiple keywords
+(test "kwargs-only method with both keywords"
+  (vector test-object 11 22) 
+  (kwo test-object a: 11 b: 22))
+
+(test "kwargs-only method with keywords in reverse order"
+  (vector test-object 33 44) 
+  (kwo test-object b: 44 a: 33))
+
+;; Test edge cases with keyword validation
+(test-signals-condition "invalid keyword for bar method" 'exn
+  (bar test-object 5 invalid: 123))
+
+(test-signals-condition "valid keyword for wrong method" 'exn
+  (kwo test-object a4: 7))  ; a4 is valid for bar but not kwo
+
+(test-signals-condition "multiple invalid keywords" 'exn
+  (bar test-object 5 invalid1: 1 invalid2: 2))
+
+;; Test keyword argument edge cases  
+(test-signals-condition "keyword without value" 'exn
+  (bar test-object 5 a4:))
+
+(test-signals-condition "positional arg after keyword" 'exn
+  (bar test-object 5 a4: 7 extra-positional))
+
+;; test that a missing kw arg value raises an exception
+(test-signals-condition "missing value of keyword arg" 'exn
+  (kwo test-object a: 1 b:))
+
+;; TODO: test duplicate keywords; should be caught by Scheme parser, but it goes through on 5.4.0
+;(test-signals-condition "duplicate keyword arguments" 'exn
+;  (bar test-object 5 a4: 7 a4: 8))
+
+;; Test complex values as keyword arguments
+(test "complex values as keyword arguments"
+  (vector test-object 5 py-none '(1 2 3) "hello" 3.14) 
+  (bar test-object 5 a3: '(1 2 3) a4: "hello" a5: 3.14))
+
+;; Test with python objects as keyword values
+(define py-list-obj (py-eval "[1, 2, 3]"))
+(test "python objects as keyword values"
+  (vector test-object 5 py-none py-list-obj py-none py-none) 
+  (bar test-object 5 a3: py-list-obj))
+
+;; Test zero arguments to kwargs-only method
+(test "kwargs-only method with no arguments"
+  (vector test-object py-none py-none) 
+  (kwo test-object))
+
+;; Test method without keyword support still works
+(test "method without keywords works normally"
+  8 (baz test-object 3 5))
+
+(test-signals-condition "method without keywords rejects keywords" 'exn
+  (baz test-object 3 5 extra: 7))
+
+;; Test rest arguments still work
+(test "rest arguments without keywords"
+  '(5 4 3 2 1) 
+  (with_rest test-object 1 2 3 4 5))
+
+(test-signals-condition "rest method rejects keywords" 'exn
+  (with_rest test-object 1 2 3 keyword: 4))
+
+;; Many keywords test
+(define-pymethod "many_kw_test" kw: (k1 k2 k3 k4 k5 k6 k7 k8 k9 k10))
+
+;; define this method in Python first
+(py-eval #<<EOP
+exec('''
+def many_kw_test(self, k1=None, k2=None, k3=None, k4=None, k5=None, 
+                 k6=None, k7=None, k8=None, k9=None, k10=None):
+    return (k1, k2, k3, k4, k5, k6, k7, k8, k9, k10)
+
+Foo.many_kw_test = many_kw_test
+''')
+EOP
+)
+
+(test "many keywords - all"
+  (vector 1 2 3 4 5 6 7 8 9 10)
+  (many_kw_test test-object k1: 1 k2: 2 k3: 3 k4: 4 k5: 5 
+                k6: 6 k7: 7 k8: 8 k9: 9 k10: 10))
+
+(test "many keywords - some"
+  (vector 1 py-none py-none 4 py-none 6 py-none py-none 9 py-none)
+  (many_kw_test test-object k1: 1 k4: 4 k6: 6 k9: 9))
+
+(test "many keywords - reverse order"
+  (vector py-none py-none py-none py-none py-none py-none py-none py-none py-none 42)
+  (many_kw_test test-object k10: 42))
+
+(test-end "keyword stress tests")
+
 (unless (zero? (test-failure-count))
   (print "=====")
   (printf "===== ~a ~a failed!\n"

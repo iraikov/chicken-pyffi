@@ -16,7 +16,7 @@ jobs:
     - uses: iraikov/setup-scheme@master
       with:
         implementation: 'chicken'
-        version: '5.2.0'
+        version: '5.4.0'
     - name: Install dependencies
       run: |
         sudo apt-get update -y
@@ -36,16 +36,16 @@ jobs:
     - uses: iraikov/setup-scheme@master
       with:
         implementation: 'chicken'
-        version: '5.2.0'
+        version: '5.4.0'
     - name: Install dependencies
       run: |
-        sudo /usr/local/bin/chicken-install test brev-separate
+        sudo $HOMEBREW_PREFIX/bin/chicken-install test brev-separate
         python3 -c "from sysconfig import get_paths; import pprint; pprint.pprint(get_paths())"
     - name: Build
       run: |
         sudo PYTHON_CFLAGS=-I/Library/Frameworks/Python.framework/Versions/3.11/include/python3.11 \
         PYTHON_LFLAGS=-L/Library/Frameworks/Python.framework/Versions/3.11/lib \
         PYTHON_LIBS=-lpython3.11 \
-        /usr/local/bin/chicken-install 
+        $HOMEBREW_PREFIX/bin/chicken-install 
     - name: Run tests
-      run: CHICKEN_CSI=/usr/local/bin/csi /usr/local/bin/csi -s tests/run.scm
+      run: CHICKEN_CSI=$HOMEBREW_PREFIX/bin/csi $HOMEBREW_PREFIX/bin/csi -s tests/run.scm

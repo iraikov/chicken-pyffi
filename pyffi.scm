@@ -1,7 +1,7 @@
 ;;
 ;; Python-Scheme FFI. Based on pyffi.lisp by Dmitri Hrapof.
 ;; Adapted to Chicken Scheme by Ivan Raikov.
-;; Chicken Scheme code copyright 2007-2019 Ivan Raikov.
+;; Chicken Scheme code copyright 2007-2025 Ivan Raikov.
 ;;
 ;;
 ;; This program is free software: you can redistribute it and/or
@@ -58,31 +58,98 @@
 
 (define-record pytype name to from)
 
+;; Fixed macros using implicit renaming (ir-macro-transformer)
+;; Only using inject when we need to break hygiene for specific bindings
+
 (define-syntax define-pytype
-  (er-macro-transformer
-   (lambda (x r c)
-     (let ((%define (r 'define))
-           (%make-pytype (r 'make-pytype))
-           (name (cadr x))
+  (ir-macro-transformer
+   (lambda (x inject compare)
+     (let ((name (cadr x))
            (to   (caddr x))
            (from (cadddr x)))
-       `(,%define ,name (,%make-pytype ',name ,to ,from))))))
+       `(define ,name (make-pytype ',name ,to ,from))))))
 
 (define-syntax translate-to-foreign
-  (er-macro-transformer
-   (lambda (x r c)
-     (let ((%pytype-to (r 'pytype-to))
-           (x (cadr x))
+  (ir-macro-transformer
+   (lambda (x inject compare)
+     (let ((x (cadr x))
            (typ (caddr x)))
-       `((,%pytype-to ,typ) ,x)))))
+       `((pytype-to ,typ) ,x)))))
 
 (define-syntax translate-from-foreign
-  (er-macro-transformer
-   (lambda (x r c)
-     (let ((%pytype-from (r 'pytype-from))
-           (x (cadr x))
+  (ir-macro-transformer
+   (lambda (x inject compare)
+     (let ((x (cadr x))
            (typ (caddr x)))
-       `((,%pytype-from ,typ) ,x)))))
+       `((pytype-from ,typ) ,x)))))
+
+(define-syntax define-pyfun
+  (ir-macro-transformer
+   (lambda (x inject compare)
+     (let* ((expr (cadr x))
+            (args (cddr x))
+            (func (gensym 'func))  ; Generate a unique name for the Scheme variable
+            (name (if (list? expr) 
+                      (second expr) 
+                      (string->symbol expr)))
+            (form (if (list? expr) (first expr) expr)))
+       `(define ,(cons name args)
+          (let ((,func (hash-table-ref/default ,(inject '*py-functions*) ',name #f)))
+            (if (not ,func)
+                (begin
+                  (set! ,func (py-eval ,form))
+                  (if (not ,func)
+                      (raise-python-exception))
+                  (if (not (PyCallable_Check ,func))
+                      (begin
+                        (Py_DecRef ,func)
+                        (raise-python-exception)))
+                  (hash-table-set! ,(inject '*py-functions*) ',name ,func)))
+            (py-apply ,func . ,args)))))))
+
+(define-syntax define-pyslot
+  (ir-macro-transformer
+   (lambda (x inject compare)
+     (let ((name (cadr x)) 
+           (rest (cddr x)))
+       (let-optionals rest ((scheme-name #f))
+         (let ((proc-name (or scheme-name (string->symbol name)))
+               (obj (gensym 'obj))
+               (rest (gensym 'rest)))
+           `(define (,proc-name ,obj . ,rest)
+              (if (null? ,rest)
+                  (PyObject_GetAttrString ,obj ,(->string name))
+                  (PyObject_SetAttrString ,obj ,(->string name) (car ,rest))))))))))
+
+(define-syntax define-pymethod
+  (ir-macro-transformer
+   (lambda (x inject compare)
+     (let ((name (cadr x)) 
+           (rest (cddr x)))
+       (let ((scheme-name (member 'scheme-name: rest))
+             (kw (member 'kw: rest)))
+         (let ((proc-name (or (and scheme-name (cadr scheme-name)) (string->symbol name)))
+               (obj (gensym 'obj))
+               (rest (gensym 'rest)))
+           (if (not kw)
+               `(define (,proc-name ,obj #!rest ,rest)
+                  (PyObject_CallObject
+                   (PyObject_GetAttrString ,obj ,(->string name))
+                   (list->vector ,rest)))
+               (let ((keyword-symbols (cadr kw)))
+                 `(define ,proc-name
+                    ;; Create the keyword list once when the function is first defined
+                    (let ((cached-accepted-kwargs 
+                           (map (lambda (sym) (string->keyword (symbol->string sym))) 
+                                ',keyword-symbols)))
+                      ;; Return the actual function that uses the cached list
+                      (lambda (,obj #!rest ,rest)
+                        (receive (args kwargs)
+                            (parse-argument-list ,rest cached-accepted-kwargs)
+                          (PyObject_Call 
+                           (PyObject_GetAttrString ,obj ,(->string name))
+                           (list->vector args)
+                           (if (null? kwargs) '() kwargs))))))))))))))
 
 ;; Scheme -> Python
 (define (py-object-to value)
@@ -104,7 +171,7 @@
 ;; Python -> Scheme
 (define (py-object-from value)
   (if (not value) (raise-python-exception))
-  (let ((typ-name  (pyffi_PyObject_Type_toCString value)))
+  (let ((typ-name  (py-object-type value)))
     (let ((typ-key (alist-ref typ-name *py-types* string=?)))
       (if typ-key
 	  (translate-from-foreign value typ-key)
@@ -152,18 +219,6 @@ C_word PyBool_asBool(PyObject *x)
    return C_SCHEME_FALSE;
 }
 
-int pyffi_PyUnicode_ref (int *x, int i)
-{
-   int result;
-
-   if (i >= 0) 
-     result = x[i];
-   else
-     result = 0;
-   
-   return result;
-}
-
 #if PY_MAJOR_VERSION >= 3
 #define PyInt_AsLong PyLong_AsLong
 #define PyInt_FromLong PyLong_FromLong
@@ -173,9 +228,10 @@ int pyffi_PyUnicode_ref (int *x, int i)
 
 
 (define PyBool-AsBool (foreign-lambda scheme-object "PyBool_asBool" nonnull-c-pointer))
-(define pyffi_PyUnicode_ref (foreign-lambda integer "pyffi_PyUnicode_ref" nonnull-c-pointer integer))
 
 (bind-type pyobject (c-pointer "PyObject") py-object-to py-object-from)
+
+(define pyffi_PyUnicode_ref (foreign-lambda integer "pyffi_PyUnicode_ref" pyobject integer))
 
 
 ;; Parse but do not embed
@@ -235,6 +291,15 @@ int PyTuple_SetItem (PyObject *, int, pyobject);
 
 PyObject *PyBool_FromLong(long);
 
+PyObject *PyBytes_FromStringAndSize(const char *, long);
+int PyBytes_Check(PyObject *);
+long PyBytes_Size(PyObject *);
+char *PyBytes_AsString(PyObject *);
+int PyByteArray_Check(PyObject *);
+long PyByteArray_Size(PyObject *);
+char *PyByteArray_AsString(PyObject *);
+
+int PyUnicode_Check(PyObject *);
 
 int PyObject_GetBuffer(PyObject *exporter, Py_buffer *view, int flags);
 int PyBuffer_ToContiguous(void *buf, Py_buffer *src, int len, char order);
@@ -248,7 +313,6 @@ EOF
 (bind* #<<EOF
 
 PyObject *pyffi_PyImport_ImportModuleEx (char *, PyObject *, PyObject *, pyobject);
-
 pyobject pyffi_PyRun_String (const char *str, int s, PyObject *g, PyObject *l);
 
 PyObject *PyModule_GetDict_asPtr (PyObject *x)
@@ -263,28 +327,19 @@ PyObject* pyffi_PyString_fromCString(const char *string)
 #else
   return PyBytes_FromString(string);
 #endif
-  
 }
 
 char *pyffi_PyString_toCString(pyobject op) 
 {
 #if PY_MAJOR_VERSION >= 3
-  return PyUnicode_AsUTF8(op);
+  const char *utf8 = PyUnicode_AsUTF8(op);
+  if (!utf8) return NULL;
+  return strdup(utf8);
 #else
-  return PyBytes_AsString(op);
+  const char *bytes = PyBytes_AsString(op);
+  if (!bytes) return NULL;
+  return strdup(bytes);
 #endif
-
-}
-
-char *pyffi_PyString_toCStringAndSize(pyobject op, Py_ssize_t *size) 
-{
-#if PY_MAJOR_VERSION >= 3
-  return PyUnicode_AsUTF8AndSize(op, size);
-#else
-  
-  return PyBytes_AsStringAndSize(op, size);
-#endif
-
 }
 
 PyObject* pyffi_PyUnicode_fromCString(const char *string)
@@ -295,56 +350,96 @@ PyObject* pyffi_PyUnicode_fromCString(const char *string)
 char *pyffi_PyUnicode_toCString(pyobject op) 
 {
 #if PY_MAJOR_VERSION >= 3
-  return PyUnicode_AsUTF8(op);
+  const char *utf8 = PyUnicode_AsUTF8(op);
+  if (!utf8) return NULL;
+  return strdup(utf8);
 #else
-  return PyUnicode_AS_DATA(op);
+  const char *data = PyUnicode_AS_DATA(op);
+  if (!data) return NULL;
+  return strdup(data);
 #endif
-
 }
 
-char *pyffi_PyUnicode_toCStringAndSize(pyobject op, Py_ssize_t *size) 
+long pyffi_PyUnicode_GetLength(pyobject op) 
 {
 #if PY_MAJOR_VERSION >= 3
-  return PyUnicode_AsUTF8AndSize(op, size);
+  return PyUnicode_GET_LENGTH(op);
 #else
-  size[0] = PyUnicode_GET_SIZE(op);
-  return PyUnicode_AS_DATA(op);
+  return PyUnicode_GET_SIZE(op);
 #endif
-
 }
 
 char *pyffi_PyObject_Type_toCString (pyobject x)
 {
   PyObject *typ, *str;
+  char *result;
 
   typ = PyObject_Type (x);
+  if (!typ) return NULL;
+  
   str = PyObject_Str (typ);
-
   Py_DecRef (typ);
+  
+  if (!str) return NULL;
 
 #if PY_MAJOR_VERSION >= 3
-  return PyUnicode_AsUTF8(str);
+  const char *utf8 = PyUnicode_AsUTF8(str);
+  result = utf8 ? strdup(utf8) : NULL;
 #else
-  return PyBytes_AsString(str);
+  const char *bytes = PyBytes_AsString(str);
+  result = bytes ? strdup(bytes) : NULL;
 #endif
 
+  Py_DecRef (str);
+  return result;
 }
 
 char *pyffi_PyErr_Occurred_toCString (void)
 {
   PyObject *exc, *str;
+  char *result;
 
-  exc = PyErr_Occurred ();
+  exc = PyErr_Occurred ();  /* Borrowed reference */
+  if (!exc) return NULL;
+  
   str = PyObject_Str (exc);
-
-  Py_DecRef (exc);
+  if (!str) return NULL;
 
 #if PY_MAJOR_VERSION >= 3
-  return PyUnicode_AsUTF8(str);
+  const char *utf8 = PyUnicode_AsUTF8(str);
+  result = utf8 ? strdup(utf8) : NULL;
 #else
-  return PyBytes_AsString(str);
+  const char *bytes = PyBytes_AsString(str);
+  result = bytes ? strdup(bytes) : NULL;
 #endif
 
+  Py_DecRef (str);  /* Only decref str, not exc */
+  return result;
+}
+
+/* Safe Unicode character access */
+int pyffi_PyUnicode_ref (PyObject *x, int i)
+{
+  if (!x || !PyUnicode_Check(x)) return 0;
+  
+  Py_ssize_t length = PyUnicode_GET_LENGTH(x);
+  if (i < 0 || i >= length) return 0;
+
+  Py_UCS4 char_code_point = PyUnicode_ReadChar(x, i);
+  
+  if (char_code_point == (Py_UCS4)-1 && PyErr_Occurred()) {
+    return 0;
+  }
+  
+  if (char_code_point > 0x10FFFF) return 0;  /* Invalid Unicode */
+  
+  return (int)char_code_point;
+}
+
+/* Memory cleanup utility */
+void pyffi_free_string(char *str) 
+{
+  if (str) free(str);
 }
 
 int PyBuffer_Size(Py_buffer *buf)
@@ -355,17 +450,16 @@ int PyBuffer_Size(Py_buffer *buf)
 EOF
 )
 
-
 (define (pyerror-exn x) (make-property-condition 'pyerror 'message x))
 
 (define (raise-python-exception)
-  (let* ((desc   (pyffi_PyErr_Occurred_toCString)))
+  (let* ((desc (pyffi_PyErr_Occurred_toCString)))
     (PyErr_Clear)
     (print-error-message desc)
     (signal (pyerror-exn desc))))
 
 (define (python-exception-string)
-  (let* ((desc   (pyffi_PyErr_Occurred_toCString)))
+  (let* ((desc (pyffi_PyErr_Occurred_toCString)))
     desc))
 
 (define-pytype py-int PyInt_FromLong PyInt_AsLong)
@@ -438,12 +532,10 @@ EOF
 
 (define (py-unicode->utf8-string value)
   ;; Given a Python Unicode string, converts it into Scheme UTF8 string
-  (let* ((len-vector (make-u32vector 1))
-         (buf (pyffi_PyUnicode_toCStringAndSize value len-vector))
-         (len (u32vector-ref len-vector 0)))
+  (let ((len (pyffi_PyUnicode_GetLength value)))
       (let loop ((i 0) (lst (list)))
         (if (< i len)
-            (loop (+ 1 i) (cons (pyffi_PyUnicode_ref buf i) lst))
+            (loop (+ 1 i) (cons (pyffi_PyUnicode_ref value i) lst))
             (list->string (map integer->char (reverse lst)))))))
 
 (define-pytype py-ascii pyffi_PyString_fromCString pyffi_PyString_toCString)
@@ -486,7 +578,7 @@ EOF
   (lambda (value)
     (let ((buf (make-blob (blob-size value))))
       (if (not buf) (raise-python-exception))
-      (PyBuffer_FromContiguous buf value (blob-size value) #\C)
+      (PyBuffer_FromContiguous (make-locative buf) (make-locative value) (blob-size value) #\C)
       buf
       ))
   ;; Given a Python buffer, converts it into a Scheme blob
@@ -539,9 +631,9 @@ EOF
 (define (py-import name #!key (as #f))
   (let* ((p (string-split name "."))
          (id (if (null? p) name (car p))))
-    (let ((m (pyffi_PyImport_ImportModuleEx name (*py-main-module-dict*) #f #f)))
+    (let ((m (pyffi_PyImport_ImportModuleEx name (*py-main-module-dict*) #f '())))
       (if m
-          (if (= -1 (PyModule_AddObject (*py-main-module*) id m))
+          (if (< (PyModule_AddObject (*py-main-module*) id m) 0)
               (begin
                 (Py_DecRef m)
                 (raise-python-exception))
@@ -559,69 +651,6 @@ EOF
 (define (py-apply func . rest)
   (PyObject_CallObject func (list->vector rest)))
 
-
-;; TODO: add keyword arguments
-(define-syntax define-pyfun
-  (er-macro-transformer
-   (lambda (x r c)
-     (let* ((%define (r 'define))
-            (%let    (r 'let))
-            (%if     (r 'if))
-            (%begin  (r 'begin))
-            (%set!   (r 'set!))
-            (not     (r 'not))
-            (alist-ref       (r 'alist-ref))
-            (alist-update!   (r 'alist-update!))
-            (py-eval   (r 'py-eval))
-            (py-apply  (r 'py-apply))
-            (raise-python-exception  (r 'raise-python-exception))
-            (PyCallable_Check  (r 'PyCallable_Check))
-            (Py_DecRef         (r 'Py_DecRef))
-            (expr (cadr x))
-            (args (cddr x))
-            (func (r 'func))
-            (name (if (list? expr) 
-                      (second expr) 
-                      (string->symbol expr)))
-            (form          (if (list? expr) (first expr) expr)))
-       `(,%define ,(cons name args)
-                  (,%let ((,func (,hash-table-ref/default *py-functions* ',name #f)))
-                         (,%if (,not ,func)
-                               (,%begin
-                                (,%set! ,func (,py-eval ,form))
-                                (,%if (,not ,func)
-                                      (,raise-python-exception))
-                                (,%if (,not (,PyCallable_Check ,func))
-                                      (,%begin
-                                       (,Py_DecRef ,func)
-                                       (,raise-python-exception)))
-                                (,hash-table-set! *py-functions* ',name ,func)))
-                         (,py-apply ,func . ,args)
-                         ))
-       ))
-   ))
-
-
-(define-syntax define-pyslot
-  (er-macro-transformer
-   (lambda (x r c)
-     (let ((name (cadr x)) 
-           (rest (cddr x)))
-       (let-optionals rest ((scheme-name #f))
-                      (let ((%define (r 'define))
-                            (%if     (r 'if))
-                            (%null?   (r 'null?))
-                            (%car     (r 'car))
-                            (PyObject_GetAttrString     (r 'PyObject_GetAttrString))
-                            (PyObject_SetAttrString     (r 'PyObject_SetAttrString))
-                            (proc-name   (or scheme-name (string->symbol name)))
-                            (obj    (r 'obj))
-                            (rest   (r 'rest)))
-                        `(,%define (,proc-name ,obj . ,rest)
-                                   (,%if (,%null? ,rest)
-                                         (,PyObject_GetAttrString ,obj ,(->string name))
-                                         (,PyObject_SetAttrString ,obj ,(->string name)
-                                                                  (,%car ,rest))))))))))
 	  
 (define (alistify-kwargs lst accepted-keywords)
   (let loop ((lst lst) (kwargs '()))
@@ -637,54 +666,6 @@ EOF
   (receive (args* kwargs*)
       (break keyword? args)
     (values args* (alistify-kwargs kwargs* accepted-keywords))))
-
-(define-syntax define-pymethod
-  (er-macro-transformer
-  (lambda (x r c)
-    (let ((name (cadr x)) 
-	  (rest (cddr x)))
-      (let ((scheme-name (member 'scheme-name: rest))
-            (kw (member 'kw: rest)))
-       (let ((%define          (r 'define))
-	     (%quote           (r 'quote))
-	     (%cons            (r 'cons))
-	     (%list            (r 'list))
-	     (%break          (r 'break))
-	     (%lambda          (r 'lambda))
-	     (%keyword?         (r 'keyword?))
-	     (%null?           (r 'null?))
-	     (%and             (r 'and))
-	     (%not             (r 'not))
-	     (%if              (r 'if))
-	     (%list->vector     (r 'list->vector))
-	     (%->string         (r '->string))
-	     (parse-argument-list         (r 'parse-argument-list))
-	     (PyObject_GetAttrString     (r 'PyObject_GetAttrString))
-	     (PyObject_CallObject        (r 'PyObject_CallObject))
-	     (PyObject_Call              (r 'PyObject_Call))
-	     (proc-name   (or (and scheme-name (cadr scheme-name)) (string->symbol name)))
-	     (obj    (r 'obj))
-	     (rest   (r 'rest))
-             )
-         (if (not kw)
-             `(,%define (,proc-name ,obj #!rest ,rest)
-                        (,PyObject_CallObject
-                         (,PyObject_GetAttrString ,obj ,(->string name) )
-                         (,%list->vector ,rest)))
-             (let ((kwargs (map (compose string->keyword symbol->string) (cadr kw))))
-               `(,%define (,proc-name ,obj #!rest ,rest)
-			  (receive
-			      (args kwargs)
-			      (,parse-argument-list ,rest ',kwargs)
-                            (,PyObject_Call 
-                             (,PyObject_GetAttrString ,obj ,(->string name) )
-			     (list->vector args)
-                             (,%if (,%null? kwargs) #f kwargs))
-                            ))
-               ))
-         ))
-      ))
-  ))
 
 
 
