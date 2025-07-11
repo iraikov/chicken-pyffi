@@ -631,9 +631,9 @@ EOF
 (define (py-import name #!key (as #f))
   (let* ((p (string-split name "."))
          (id (if (null? p) name (car p))))
-    (let ((m (pyffi_PyImport_ImportModuleEx name (*py-main-module-dict*) #f #f)))
+    (let ((m (pyffi_PyImport_ImportModuleEx name (*py-main-module-dict*) #f '())))
       (if m
-          (if (= -1 (PyModule_AddObject (*py-main-module*) id m))
+          (if (< (PyModule_AddObject (*py-main-module*) id m) 0)
               (begin
                 (Py_DecRef m)
                 (raise-python-exception))
