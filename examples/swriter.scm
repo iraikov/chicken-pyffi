@@ -69,29 +69,31 @@
     (setPropertyValue cursor "CharColor"  color )
     (setString tableText  text )))
 
+;; Converted macros from explicit to implicit renaming style
+
 (define-syntax uno-new-session
-  (lambda (x r c)
-    (let ((%let* (r 'let*)))
-    `(,%let* 
+  (ir-macro-transformer
+   (lambda (x inject compare)
+     `(,(inject 'let*) 
          ((lc (uno.getComponentContext))
 	  (resolver (createInstanceWithContext 
 		     (ServiceManager lc)
 		     "com.sun.star.bridge.UnoUrlResolver" lc))
-	  (ctx (resolve resolver "uno:socket,host=localhost,port=2002;urp;StarOffice.ComponentContext"))
+	  (ctx (resolve resolver "uno:socket,host=localhost,port=54021;urp;StarOffice.ComponentContext"))
 	  (desktop (createInstanceWithContext 
 		    (ServiceManager ctx)
 		    "com.sun.star.frame.Desktop" ctx))
 	  ;(model   (getCurrentComponent desktop))
-	  (model   (loadComponentFromURL  desktop "private:factory/swriter" "_blank"  0  (make-vector 0) ))
-	  (text    (Text model))
-	  (cursor  (createTextCursor text)))
+	  (,(inject 'model)   (loadComponentFromURL  desktop "private:factory/swriter" "_blank"  0  (make-vector 0) ))
+	  (,(inject 'text)    (Text ,(inject 'model)))
+	  (,(inject 'cursor)  (createTextCursor ,(inject 'text))))
 	 
-     . ,(cdr x)))))
+       ,@(cdr x)))))
 
 (define-syntax uno-current-session
-  (lambda (x r c)
-    (let ((%let* (r 'let*)))
-      `(,%let* 
+  (ir-macro-transformer
+   (lambda (x inject compare)
+     `(,(inject 'let*) 
 	((lc (uno.getComponentContext))
 	 (resolver (createInstanceWithContext 
 		    (ServiceManager lc)
@@ -103,7 +105,7 @@
 	 (model   (getCurrentComponent desktop))
 	 (text    (Text model))
 	 (cursor  (createTextCursor text)))
-	. ,(cdr x)))))
+	,@(cdr x)))))
 
 (uno-new-session
  (insertString text cursor "The first line in the newly created text document.\n"  0)
@@ -134,7 +136,7 @@
 
  (insertControlCharacter text cursor PARAGRAPH_BREAK 0)
  (setPropertyValue cursor "ParaStyleName" "Heading 1")
- (setPropertyValue cursor "CharStyleName" "Default")
+ ;(setPropertyValue cursor "CharStyleName" "Default")
  (insertString text cursor "This is a Level 1 title.\n" 0)
 
  (let* ((xNum (createInstance model "com.sun.star.text.NumberingRules")))
