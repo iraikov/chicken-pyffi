@@ -137,16 +137,19 @@
                    (PyObject_GetAttrString ,obj ,(->string name))
                    (list->vector ,rest)))
                (let ((keyword-symbols (cadr kw)))
-                 `(define (,proc-name ,obj #!rest ,rest)
-                    (let ((accepted-kwargs (map (lambda (sym) (string->keyword (symbol->string sym))) 
-                                                ',keyword-symbols)))
-                      (receive (args kwargs)
-                          (parse-argument-list ,rest accepted-kwargs)
-                        (PyObject_Call 
-                         (PyObject_GetAttrString ,obj ,(->string name))
-                         (list->vector args)
-                         (if (null? kwargs) #f kwargs)))))))))))))
-
+                 `(define ,proc-name
+                    ;; Create the keyword list once when the function is first defined
+                    (let ((cached-accepted-kwargs 
+                           (map (lambda (sym) (string->keyword (symbol->string sym))) 
+                                ',keyword-symbols)))
+                      ;; Return the actual function that uses the cached list
+                      (lambda (,obj #!rest ,rest)
+                        (receive (args kwargs)
+                            (parse-argument-list ,rest cached-accepted-kwargs)
+                          (PyObject_Call 
+                           (PyObject_GetAttrString ,obj ,(->string name))
+                           (list->vector args)
+                           (if (null? kwargs) #f kwargs))))))))))))))
 
 ;; Scheme -> Python
 (define (py-object-to value)
