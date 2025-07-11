@@ -149,7 +149,7 @@
                           (PyObject_Call 
                            (PyObject_GetAttrString ,obj ,(->string name))
                            (list->vector args)
-                           (if (null? kwargs) #f kwargs))))))))))))))
+                           (if (null? kwargs) '() kwargs))))))))))))))
 
 ;; Scheme -> Python
 (define (py-object-to value)
